@@ -25,17 +25,17 @@ output "alb_sg_id" {
 
 output "target_group_id" {
   description = "ID of the target group (Django)"
-  value       = aws_lb_target_group.main.id
+  value       = aws_lb_target_group.django.id
 }
 
 output "target_group_arn" {
   description = "ARN of the target group (Django)"
-  value       = aws_lb_target_group.main.arn
+  value       = aws_lb_target_group.django.arn
 }
 
 output "target_group_name" {
   description = "Name of the target group (Django)"
-  value       = aws_lb_target_group.main.name
+  value       = aws_lb_target_group.django.name
 }
 
 output "fastapi_target_group_arn" {

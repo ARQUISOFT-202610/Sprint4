@@ -1,96 +1,94 @@
-# Manual Steps After Terraform Deployment
+# Pasos Manuales Después del Despliegue de Terraform
 
-This document outlines the manual verification and configuration steps required after deploying ArquiSoft infrastructure with Terraform.
+Este documento detalla los pasos de configuración manual necesarios después de desplegar la infraestructura de ArquiSoft con Terraform.
 
-## Table of Contents
-1. [SES Email Verification](#ses-email-verification)
-2. [SES Email Templates](#ses-email-templates)
-3. [HTTPS Certificate Information](#https-certificate-information)
-4. [Application Access Points](#application-access-points)
-5. [FastAPI & DynamoDB Local Setup](#fastapi--dynamodb-local-setup)
-6. [Testing FastAPI & DynamoDB](#testing-fastapi--dynamodb)
-7. [Verification Checklist](#verification-checklist)
+## Tabla de Contenidos
+
+1. [Verificación de Identidades en AWS SES](#verificación-de-identidades-en-aws-ses)
+2. [Creación de Plantillas de Correo en AWS SES](#creación-de-plantillas-de-correo-en-aws-ses)
+3. [Información del Certificado HTTPS](#información-del-certificado-https)
+4. [Puntos de Acceso a la Aplicación](#puntos-de-acceso-a-la-aplicación)
 
 ---
 
-## SES Email Verification
+## Verificación de Identidades en AWS SES
 
-AWS Academy accounts have restricted SES permissions. Email identities cannot be automatically verified via Terraform. You must verify them manually in the AWS Console.
+Las cuentas de AWS Academy tienen permisos restringidos en SES. Las identidades de correo electrónico no se pueden verificar automáticamente a través de Terraform. Debe verificarlas manualmente en la Consola de AWS.
 
-### Step A: Verify Sender Email
+### Paso A: Verificar Correo de Remitente
 
-1. **Access AWS SES Console**
-   - Go to: https://console.aws.amazon.com/ses/home
-   - Ensure you are in region: **us-east-1**
+1. **Acceder a la Consola de AWS SES**
+   - Ir a: https://console.aws.amazon.com/ses/home
+   - Asegúrese de estar en la región: **us-east-1**
 
-2. **Create/Verify Sender Identity**
-   - Click: "Verified Identities" (left menu)
-   - Click: "Create Identity"
-   - Select: "Email address"
-   - Enter: `noreply@arquisoft.com`
-   - Click: "Create identity"
+2. **Crear/Verificar Identidad de Remitente**
+   - Hacer clic en: "Verified Identities" (menú izquierdo)
+   - Hacer clic en: "Create Identity"
+   - Seleccionar: "Email address"
+   - Ingresar: `noreply@arquisoft.com`
+   - Hacer clic en: "Create identity"
 
-3. **Complete Email Verification**
-   - Check your **Gmail/email inbox** for verification email from AWS
-   - Click the **verification link** in the email
-   - Return to AWS SES console
-   - Refresh the page
-   - Status should now show: **Verified** ✓
+3. **Completar la Verificación de Correo**
+   - Revisar la bandeja de entrada de su correo para el mensaje de verificación de AWS
+   - Hacer clic en el **enlace de verificación** del correo
+   - Volver a la consola de AWS SES
+   - Actualizar la página
+   - El estado debe mostrar: **Verified** (Verificado)
 
-### Step B: Verify Recipient Email
+### Paso B: Verificar Correo de Destinatario
 
-Repeat the same process for the recipient email:
+Repetir el mismo proceso para el correo del destinatario:
 
-1. Click: "Create Identity"
-2. Select: "Email address"
-3. Enter: `c.ochoao@uniandes.edu.co`
-4. Click: "Create identity"
-5. Check your email for verification link
-6. Click the verification link
-7. Return to AWS SES console
-8. Refresh to confirm: **Verified** ✓
+1. Hacer clic en: "Create Identity"
+2. Seleccionar: "Email address"
+3. Ingresar: `c.ochoao@uniandes.edu.co`
+4. Hacer clic en: "Create identity"
+5. Revisar el correo para el enlace de verificación
+6. Hacer clic en el enlace de verificación
+7. Volver a la consola de AWS SES
+8. Actualizar para confirmar: **Verified** (Verificado)
 
-### Verification Status
+### Estado de Verificación
 
-After completing both steps, the AWS SES Verified Identities page should show:
+Después de completar ambos pasos, la página de Identidades Verificadas de AWS SES debe mostrar:
 
 ```
-Sender:    noreply@arquisoft.com    ✓ Verified
-Recipient: c.ochoao@uniandes.edu.co ✓ Verified
+Remitente:     noreply@arquisoft.com       [Verificado]
+Destinatario:  c.ochoao@uniandes.edu.co    [Verificado]
 ```
 
 ---
 
-## SES Email Templates
+## Creación de Plantillas de Correo en AWS SES
 
-SES template creation is also restricted in AWS Academy accounts. Templates must be created manually.
+La creación de plantillas también está restringida en cuentas de AWS Academy. Las plantillas deben crearse manualmente.
 
-### Template Creation
+### Creación de Plantillas
 
-1. **Access AWS SES Console**
-   - Go to: https://console.aws.amazon.com/ses/home
-   - Region: **us-east-1**
+1. **Acceder a la Consola de AWS SES**
+   - Ir a: https://console.aws.amazon.com/ses/home
+   - Región: **us-east-1**
 
-2. **Create Success Template**
-   - Navigate: "Email Templates" (left menu)
-   - Click: "Create Template"
-   - Fill in the form:
-     - **Template name:** `analisis-resultado-exito`
-     - **Subject:** `ArquiSoft: Análisis Completado Exitosamente`
-     - **HTML:** Copy from `terraform/modules/ses/templates/success_email.html`
-     - **Text:** Copy from `terraform/modules/ses/templates/success_email.txt`
-   - Click: "Create template"
+2. **Crear Plantilla de Éxito**
+   - Navegar a: "Email Templates" (menú izquierdo)
+   - Hacer clic en: "Create Template"
+   - Completar el formulario:
+     - **Nombre de Plantilla:** `analisis-resultado-exito`
+     - **Asunto:** `ArquiSoft: Análisis Completado Exitosamente`
+     - **HTML:** Copiar contenido del archivo `terraform/modules/ses/templates/success_email.html`
+     - **Texto:** Copiar contenido del archivo `terraform/modules/ses/templates/success_email.txt`
+   - Hacer clic en: "Create template"
 
-3. **Create Failure Template**
-   - Click: "Create Template" again
-   - Fill in the form:
-     - **Template name:** `analisis-resultado-error`
-     - **Subject:** `ArquiSoft: Análisis Completado con Errores`
-     - **HTML:** Copy from `terraform/modules/ses/templates/failure_email.html`
-     - **Text:** Copy from `terraform/modules/ses/templates/failure_email.txt`
-   - Click: "Create template"
+3. **Crear Plantilla de Error**
+   - Hacer clic en: "Create Template" nuevamente
+   - Completar el formulario:
+     - **Nombre de Plantilla:** `analisis-resultado-error`
+     - **Asunto:** `ArquiSoft: Análisis Completado con Errores`
+     - **HTML:** Copiar contenido del archivo `terraform/modules/ses/templates/failure_email.html`
+     - **Texto:** Copiar contenido del archivo `terraform/modules/ses/templates/failure_email.txt`
+   - Hacer clic en: "Create template"
 
-### Template Files Location
+### Ubicación de Archivos de Plantillas
 
 ```
 terraform/modules/ses/templates/
@@ -102,154 +100,155 @@ terraform/modules/ses/templates/
 
 ---
 
-## HTTPS Certificate Information
+## Información del Certificado HTTPS
 
-The application uses a **self-signed TLS certificate** for HTTPS encryption during development.
+La aplicación utiliza un **certificado TLS auto-firmado** para encriptación HTTPS durante el desarrollo.
 
-### Certificate Details
+### Detalles del Certificado
 
-- **Generated by:** Terraform `tls_self_signed_cert` resource
-- **Validity:** 365 days from deployment
-- **Algorithm:** RSA 2048-bit
-- **Common Name:** `arquisoft.local`
-- **Organization:** ArquiSoft
-- **Location:** 
-  - Certificate: `~/.tls/arquisoft.crt`
-  - Private Key: `~/.tls/arquisoft.key`
+- **Generado por:** Recurso de Terraform `tls_self_signed_cert`
+- **Validez:** 365 días desde el despliegue
+- **Algoritmo:** RSA 2048-bit
+- **Nombre Común:** `arquisoft.local`
+- **Organización:** ArquiSoft
+- **Ubicación:**
+  - Certificado: `~/.tls/arquisoft.crt`
+  - Clave Privada: `~/.tls/arquisoft.key`
 
-### Browser Warning
+### Advertencia en el Navegador
 
-When accessing the application via HTTPS, your browser will display:
+Al acceder a la aplicación a través de HTTPS, el navegador mostrará:
 
 ```
-Your connection is not private
+Su conexión no es privada
 NET::ERR_CERT_AUTHORITY_INVALID
 ```
 
-This is **NORMAL** for self-signed certificates in development. The application is still secure - the warning just indicates that no trusted Certificate Authority signed the certificate.
+Esto es **NORMAL** para certificados auto-firmados en desarrollo. La aplicación sigue siendo segura - la advertencia solo indica que ninguna Autoridad Certificadora de confianza firmó el certificado.
 
-### How to Proceed in Browser
+### Cómo Proceder en el Navegador
 
 **Chrome/Edge:**
-1. Click "Advanced" button
-2. Click "Proceed to arquisoft..." link
+1. Hacer clic en el botón "Advanced" (Avanzado)
+2. Hacer clic en el enlace "Proceed to arquisoft..." (Continuar)
 
 **Firefox:**
-1. Click "Advanced..." button
-2. Click "Accept the Risk and Continue" button
+1. Hacer clic en "Advanced..." (Avanzado)
+2. Hacer clic en "Accept the Risk and Continue" (Aceptar el riesgo y continuar)
 
 **Safari:**
-1. Click "Show Details"
-2. Click "Visit this website" link
+1. Hacer clic en "Show Details" (Mostrar detalles)
+2. Hacer clic en "Visit this website" (Visitar este sitio web)
 
-### Optional: Import Certificate Locally (macOS)
+### Opcional: Importar Certificado Localmente (macOS)
 
-To eliminate browser warnings during local testing, you can import the certificate:
+Para eliminar las advertencias del navegador durante pruebas locales, puede importar el certificado:
 
 ```bash
-# Import certificate to system keychain
+# Importar certificado al llavero del sistema
 sudo security add-trusted-cert -d -r trustRoot \
   -k /Library/Keychains/System.keychain \
   ~/.tls/arquisoft.crt
 ```
 
-Then restart your browser. The warning should be gone.
+Luego reinicie el navegador. La advertencia debe desaparecer.
 
 ---
 
-## Application Access Points
+## Puntos de Acceso a la Aplicación
 
-### Get Infrastructure Outputs
+### Obtener Salidas de Infraestructura
 
-After deployment, retrieve all application endpoints:
+Después del despliegue, recupere todos los puntos de acceso de la aplicación:
 
 ```bash
 cd terraform
 terraform output infrastructure_summary
 ```
 
-This displays:
+Esto muestra:
 
 ```
-Infrastructure Summary:
-  Frontend (HTTPS):  https://arquisoft-django-alb-XXXXX.us-east-1.elb.amazonaws.com
-  Backend API:       https://arquisoft-django-alb-XXXXX.us-east-1.elb.amazonaws.com/api/
-  Celery Flower:     http://<celery-instance-ip>:5555
+Resumen de Infraestructura:
+  Frontend (HTTPS):    https://arquisoft-alb-XXXXX.us-east-1.elb.amazonaws.com
+  API Backend:         https://arquisoft-alb-XXXXX.us-east-1.elb.amazonaws.com/api/
+  Flower (Celery):     http://<celery-instance-ip>:5555
 ```
 
 ### Frontend (React)
 
-- **Protocol:** HTTPS (self-signed certificate)
-- **Port:** 443 (default)
-- **URL:** `https://<frontend-alb-dns>`
-- **Redirect:** HTTP (port 80) redirects to HTTPS
+- **Protocolo:** HTTPS (certificado auto-firmado)
+- **Puerto:** 443 (por defecto)
+- **URL:** `https://<alb-dns>`
+- **Redirección:** HTTP (puerto 80) redirige a HTTPS
 
-Example:
+Ejemplo:
 ```
-https://arquisoft-django-alb-abcd1234.us-east-1.elb.amazonaws.com
-```
-
-### Backend API (Django)
-
-- **Protocol:** HTTP (proxied through Nginx)
-- **Path:** `/api/`
-- **URL:** `https://<frontend-alb-dns>/api/`
-
-Example:
-```
-https://arquisoft-django-alb-abcd1234.us-east-1.elb.amazonaws.com/api/
+https://arquisoft-alb-abcd1234.us-east-1.elb.amazonaws.com
 ```
 
-The Nginx frontend proxy forwards `/api/*` requests to the Django ALB backend.
+### API Backend (Django)
 
-### FastAPI Microservice (NEW)
+- **Protocolo:** HTTP (proxied a través de Nginx)
+- **Ruta:** `/api/`
+- **URL:** `https://<alb-dns>/api/`
 
-FastAPI is a new microservice deployed alongside Django, with its own Auto Scaling Group.
+Ejemplo:
+```
+https://arquisoft-alb-abcd1234.us-east-1.elb.amazonaws.com/api/
+```
 
-- **Protocol:** HTTP (proxied through ALB)
-- **Port:** 8001 (application port), 80 (ALB listener)
-- **URL:** `https://<frontend-alb-dns>/fastapi/`
+El proxy de Nginx del frontend reenvía las solicitudes `/api/*` al backend de ALB de Django.
 
-**To access FastAPI:**
+### FastAPI Microservice
 
-1. Get the FastAPI endpoint through the ALB (same as Django):
+FastAPI es un microservicio nuevo desplegado junto a Django, con su propio Auto Scaling Group.
+
+- **Protocolo:** HTTP (proxied a través de ALB)
+- **Puerto:** 8001 (puerto de aplicación), 80 (escuchador ALB)
+- **URL:** `https://<alb-dns>/fastapi/`
+
+**Para acceder a FastAPI:**
+
+1. Obtener el punto de acceso de FastAPI a través del ALB (igual que Django):
    ```bash
    terraform output alb_dns_name
    ```
 
-2. Access via ALB:
+2. Acceder a través del ALB:
    ```
    https://<alb-dns>/fastapi/
    ```
 
-3. Direct instance access (if needed):
+3. Acceso directo a instancias (si es necesario):
    ```bash
-   # Get FastAPI instance IP
-   aws ec2 describe-instances \
-     --filters "Name=tag:Name,Values=fastapi-instance" \
-     --query 'Reservations[0].Instances[0].PublicIpAddress' \
-     --region us-east-1
+   # Obtener IP de instancia de FastAPI
+   aws autoscaling describe-auto-scaling-groups \
+     --auto-scaling-group-names arquisoft-fastapi-asg \
+     --region us-east-1 \
+     --query 'AutoScalingGroups[0].Instances[0].[InstanceId,AvailabilityZone]' \
+     --output table
    ```
 
-### DynamoDB Local (NEW)
+### DynamoDB Local
 
-DynamoDB Local runs on a dedicated EC2 instance for data persistence during development/testing.
+DynamoDB Local se ejecuta en una instancia EC2 dedicada para persistencia de datos durante desarrollo/pruebas.
 
-- **Protocol:** HTTP (internal communication only)
-- **Port:** 8000
-- **Endpoint:** `http://<dynamodb-instance-ip>:8000`
+- **Protocolo:** HTTP (comunicación interna solo)
+- **Puerto:** 8000
+- **Punto de Acceso:** `http://<dynamodb-instance-ip>:8000`
 
-**DynamoDB Local details:**
+**Detalles de DynamoDB Local:**
 
-- Runs in **in-memory mode** with shared database (`:sharedDb`)
-- Used exclusively by FastAPI microservice
-- Not directly accessible from frontend
-- Data is **non-persistent** (lost on restart)
-- Suitable for development and testing only
+- Se ejecuta en **modo en-memoria** con base de datos compartida (`:sharedDb`)
+- Utilizado exclusivamente por el microservicio FastAPI
+- No es directamente accesible desde el frontend
+- Los datos **no son persistentes** (se pierden al reiniciar)
+- Adecuado solo para desarrollo y pruebas
 
-**To verify DynamoDB Local is running:**
+**Para verificar que DynamoDB Local está ejecutándose:**
 
-1. Get the DynamoDB instance IP:
+1. Obtener la IP de la instancia de DynamoDB:
    ```bash
    aws ec2 describe-instances \
      --filters "Name=tag:Name,Values=arquisoft-dynamodb-local" \
@@ -257,428 +256,97 @@ DynamoDB Local runs on a dedicated EC2 instance for data persistence during deve
      --region us-east-1
    ```
 
-2. Test connectivity:
+2. Verificar conectividad:
    ```bash
    curl http://<dynamodb-instance-ip>:8000/
    ```
 
-3. Or SSH into instance:
+3. O conectarse por SSH a la instancia:
    ```bash
    ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<dynamodb-instance-ip>
    ```
 
 ---
 
-## FastAPI & DynamoDB Local Setup
+## Lista de Verificación Post-Despliegue
 
-This new section details the setup and verification of the FastAPI microservice and DynamoDB Local instance.
+Después del despliegue y configuración manual, verifique que todo funciona:
 
-### Architecture Overview
+### Servicio de Correo
 
-```
-┌─────────────────────────────────────────────────┐
-│           Application Load Balancer             │
-│              (Port 80 / 443 HTTPS)              │
-└──────────────┬──────────────────────────────────┘
-               │
-       ┌───────┴────────┐
-       │                │
-   ┌───▼────┐      ┌───▼────────┐
-   │ Django │      │  FastAPI   │
-   │  (8000)│      │   (8001)   │
-   └────────┘      └───┬────────┘
-                       │
-                       │ DynamoDB connection
-                       │ (port 8000)
-                       │
-                   ┌───▼──────────────┐
-                   │ DynamoDB Local   │
-                   │   (port 8000)    │
-                   └──────────────────┘
-```
+- [ ] Correo remitente `noreply@arquisoft.com` verificado en AWS SES (console.aws.amazon.com/ses)
+- [ ] Correo destinatario `c.ochoao@uniandes.edu.co` verificado en AWS SES
+- [ ] Plantilla de éxito `analisis-resultado-exito` creada en AWS SES
+- [ ] Plantilla de error `analisis-resultado-error` creada en AWS SES
 
-### Module Details
+### HTTPS
 
-#### FastAPI Module (`ec2_fastapi`)
+- [ ] Frontend accesible en `https://<alb-dns>` (aceptar advertencia de certificado auto-firmado)
+- [ ] HTTP redirige a HTTPS (acceder a `http://<alb-dns>`, debe redirigir)
+- [ ] Archivos de certificado TLS presentes en `~/.tls/arquisoft.crt` y `~/.tls/arquisoft.key`
 
-**Location:** `terraform/modules/ec2_fastapi/`
+### Puntos de Acceso de la Aplicación
 
-**Resources:**
-- Security Group: `arquisoft-fastapi-ec2-sg`
-  - Ingress: Port 8001 from ALB
-  - Ingress: Port 22 (SSH) from anywhere
-  - Egress: All traffic allowed
-
-- Launch Template: `fastapi-lt-*`
-  - AMI: Ubuntu 24.04 LTS (same as Django)
-  - Instance type: t2.micro
-  - User data: `fastapi_setup.sh`
-
-- Auto Scaling Group: `arquisoft-fastapi-asg`
-  - Desired: 1
-  - Min: 1
-  - Max: 3
-  - Health check: EC2 type
-
-**Environment Variables:**
-```
-DYNAMODB_ENDPOINT=http://<dynamodb-private-ip>:8000
-AWS_REGION=us-east-1
-AWS_CLOUDWATCH_LOG_GROUP=/arquisoft/fastapi
-AWS_CLOUDWATCH_RETENTION_DAYS=90
-FASTAPI_DEBUG=False
-```
-
-#### DynamoDB Local Module (`ec2_dynamodb`)
-
-**Location:** `terraform/modules/ec2_dynamodb/`
-
-**Resources:**
-- Security Group: `arquisoft-dynamodb-ec2-sg`
-  - Ingress: Port 8000 from FastAPI SG
-  - Ingress: Port 22 (SSH) from anywhere
-  - Egress: All traffic allowed
-
-- EC2 Instance: `arquisoft-dynamodb-local`
-  - AMI: Ubuntu 24.04 LTS
-  - Instance type: t2.micro
-  - User data: `dynamodb_setup.sh`
-  - **NOT in Auto Scaling Group** (stateful service)
-
-**DynamoDB Local Configuration:**
-- Mode: In-memory with shared database
-- Port: 8000
-- Logging: Local only (`/var/log/dynamodb/dynamodb.log`) - NOT sent to CloudWatch
-
-### Setup Scripts
-
-#### `fastapi_setup.sh`
-
-**Purpose:** Deploy and configure FastAPI application on EC2
-
-**Steps:**
-1. Update system packages
-2. Install Python 3.12 and dependencies
-3. Install CloudWatch Logs Agent
-4. Clone application repository from GitHub
-5. Create Python virtual environment
-6. Install Python dependencies from `requirements.txt`
-7. Configure environment variables (.env)
-8. Create Uvicorn systemd service
-9. Start FastAPI application on port 8001
-10. Verify application is running
-11. Send logs to CloudWatch
-
-**Logs generated:**
-- `/var/log/user-data.log` → CloudWatch: `/arquisoft/fastapi/{instance_id}-setup`
-- `/var/log/uvicorn/access.log` → CloudWatch: `/arquisoft/fastapi/{instance_id}-access`
-- `/var/log/uvicorn/error.log` → CloudWatch: `/arquisoft/fastapi/{instance_id}-error`
-
-#### `dynamodb_setup.sh`
-
-**Purpose:** Deploy and configure DynamoDB Local on EC2
-
-**Steps:**
-1. Update system packages
-2. Install Java (required by DynamoDB Local)
-3. Download DynamoDB Local (latest version)
-4. Extract and setup DynamoDB Local
-5. Create systemd service for DynamoDB
-6. Start DynamoDB Local on port 8000
-7. Configure permissions
-8. Verify DynamoDB Local is responding
-
-**Logs generated:**
-- `/var/log/user-data.log` - Local setup logs (not sent to CloudWatch)
-- `/var/log/dynamodb/dynamodb.log` - DynamoDB service logs (local only)
-
-**DynamoDB Local Service:**
-```ini
-[Unit]
-Description=DynamoDB Local Service
-After=network.target
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/opt/dynamodb
-ExecStart=/usr/bin/java -Djava.library.path=/opt/dynamodb/DynamoDBLocal_lib \
-  -jar /opt/dynamodb/DynamoDBLocal.jar \
-  -sharedDb \
-  -inMemory \
-  -port 8000
-```
-
-### CloudWatch Integration
-
-New log groups have been added for FastAPI and DynamoDB:
-
-```
-/arquisoft/fastapi
-├── {instance_id}-setup     (setup logs)
-├── {instance_id}-access    (HTTP access logs)
-└── {instance_id}-error     (application errors)
-```
-
-**Note:** DynamoDB Local logs are stored locally on the instance at `/var/log/dynamodb/dynamodb.log` and are NOT sent to CloudWatch.
-
-All logs are retained for **90 days** as per compliance requirements.
-
-### Security Group Communication
-
-**Established rules:**
-
-| From | To | Port | Type | Purpose |
-|------|-----|------|------|---------|
-| ALB | FastAPI | 8001 | Ingress | Health checks & traffic |
-| FastAPI | DynamoDB | 8000 | Ingress | API queries |
-| Internet | FastAPI | 22 | Ingress | SSH management |
-| Internet | DynamoDB | 22 | Ingress | SSH management |
+- [ ] Aplicación React del Frontend carga en `https://<alb-dns>`
+- [ ] API es accesible en `https://<alb-dns>/api/`
+- [ ] Verificación de salud: `/health` retorna "healthy"
+- [ ] Flower de Celery accesible en `http://<celery-ip>:5555`
 
 ---
 
-## Testing FastAPI & DynamoDB
+## Solución de Problemas
 
-**Complete Testing Guide:** See `TESTING_FASTAPI_DYNAMODB.md` for comprehensive testing procedures including:
-
-- ✅ FastAPI instance health and connectivity
-- ✅ DynamoDB Local verification and operations
-- ✅ FastAPI ↔ DynamoDB communication
-- ✅ ALB path-based routing validation
-- ✅ Multi-AZ redundancy verification
-- ✅ Troubleshooting common issues
-
-**Quick Start:**
-```bash
-# Test FastAPI via ALB
-curl http://<ALB-DNS>/fastapi/health
-
-# Test DynamoDB Local
-ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<dynamodb-public-ip>
-curl http://localhost:8000/
-```
-
----
-
-## FastAPI & DynamoDB Verification Checklist
-
-After deployment, verify the new services:
-
-### FastAPI ✓
-- [ ] FastAPI ASG created with 1 instance (min: 1, max: 3)
-- [ ] FastAPI instance has public IP and can be SSH'd
-- [ ] FastAPI listening on port 8001 (verify with `ss -tulpn`)
-- [ ] FastAPI application code deployed at `/app`
-- [ ] CloudWatch logs appearing in `/arquisoft/fastapi` within 1-2 minutes
-- [ ] FastAPI responds to health check endpoint: `/health`
-- [ ] FastAPI can connect to DynamoDB Local endpoint
-
-### DynamoDB Local ✓
-- [ ] DynamoDB instance created and running
-- [ ] DynamoDB instance has public IP and can be SSH'd
-- [ ] Java installed on DynamoDB instance
-- [ ] DynamoDB Local listening on port 8000
-- [ ] DynamoDB Local service running (check with `systemctl status dynamodb`)
-- [ ] DynamoDB Local responds to HTTP requests: `curl http://<dynamodb-ip>:8000/`
-- [ ] Data persistence verified (create table, verify after restart)
-
-### ALB Target Groups ✓
-- [ ] Django target group: port 8000 (Django)
-- [ ] FastAPI target group: port 8001 (FastAPI)
-- [ ] Both target groups health checks passing
-- [ ] Traffic routing correctly based on ports
-
----
-
-## Testing FastAPI to DynamoDB Communication
-
-### From FastAPI Instance
-
-SSH into FastAPI instance and test:
-
-```bash
-ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<fastapi-instance-ip>
-
-# Test DynamoDB endpoint
-curl http://<dynamodb-private-ip>:8000/
-
-# Check logs
-tail -f /var/log/uvicorn/access.log
-
-# Verify service is running
-systemctl status fastapi
-```
-
-### From Local Machine
-
-If you have the DynamoDB instance IP:
-
-```bash
-# Test direct access
-curl http://<dynamodb-instance-ip>:8000/
-
-# List tables (if AWS CLI installed)
-aws dynamodb list-tables \
-  --endpoint-url http://<dynamodb-instance-ip>:8000 \
-  --region us-east-1
-```
-
----
-
-## Troubleshooting FastAPI & DynamoDB
-
-### FastAPI not starting
-
-**Check logs:**
-```bash
-ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<fastapi-instance-ip>
-tail -100 /var/log/user-data.log
-journalctl -u fastapi -n 50
-```
-
-**Common issues:**
-- Python dependencies not installed → Check `pip install -r requirements.txt`
-- DynamoDB endpoint not set → Verify `.env` file contains `DYNAMODB_ENDPOINT`
-- Port 8001 already in use → Check with `ss -tulpn | grep 8001`
-
-### DynamoDB Local not starting
-
-**Check logs:**
-```bash
-ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<dynamodb-instance-ip>
-tail -100 /var/log/user-data.log
-systemctl status dynamodb
-journalctl -u dynamodb -n 50
-```
-
-**Common issues:**
-- Java not installed → `apt-get install default-jre-headless`
-- Port 8000 already in use → `lsof -i :8000`
-- Download failed → Manual download and extraction needed
-
-### FastAPI cannot reach DynamoDB
-
-**Verify:**
-1. Security group allows port 8000 from FastAPI
-2. DynamoDB instance is running
-3. Correct private IP in FastAPI environment variables
-4. Network connectivity: `ping <dynamodb-private-ip>` from FastAPI instance
-5. Port is listening: `ss -tulpn | grep 8000` on DynamoDB instance
-
-```bash
-# From FastAPI instance
-curl http://<dynamodb-private-ip>:8000/
-```
-
----
-
-After deployment and manual configuration, verify everything works:
-
-### Email Service ✓
-- [ ] Sender email `noreply@arquisoft.com` verified in AWS SES console
-- [ ] Recipient email `c.ochoao@uniandes.edu.co` verified in AWS SES console
-- [ ] Success template `analisis-resultado-exito` created in AWS SES console
-- [ ] Failure template `analisis-resultado-error` created in AWS SES console
-
-### HTTPS ✓
-- [ ] Frontend accessible at `https://<alb-dns>` (accept self-signed certificate warning)
-- [ ] HTTP redirects to HTTPS (access `http://<alb-dns>`, should redirect)
-- [ ] TLS certificate files present at `~/.tls/arquisoft.crt` and `~/.tls/arquisoft.key`
-
-### Application Endpoints ✓
-- [ ] Frontend React app loads at `https://<alb-dns>`
-- [ ] API is accessible at `https://<alb-dns>/api/`
-- [ ] Health check passes: `/health` returns "healthy"
-- [ ] Celery Flower accessible at `http://<celery-ip>:5555`
-
-### Logs & Monitoring ✓
-- [ ] CloudWatch log groups created:
-   - `/arquisoft/django`
-   - `/arquisoft/django/security`
-   - `/arquisoft/celery`
-   - `/arquisoft/celery/failures`
-   - `/arquisoft/fastapi` (NEW)
-- [ ] Logs appearing in CloudWatch within 1-2 minutes of first request
-- [ ] Security logs captured for authentication/authorization events
-- [ ] FastAPI logs appearing in `/arquisoft/fastapi`
-- [ ] DynamoDB Local logs stored locally at `/var/log/dynamodb/dynamodb.log` (not in CloudWatch)
-
-### Database ✓
-- [ ] RDS PostgreSQL instance running
-- [ ] Django can connect to database
-- [ ] Database migrations completed successfully
-- [ ] Tables created in database
-
----
-
-## Troubleshooting
-
-### Certificate Errors
+### Errores de Certificado
 
 **Error:** `curl: (60) SSL certificate problem`
 
-**Solution:** Use `-k` or `--insecure` flag to skip certificate verification:
+**Solución:** Usar la bandera `-k` o `--insecure` para omitir verificación de certificado:
 ```bash
-curl -k https://arquisoft-django-alb-XXXXX.us-east-1.elb.amazonaws.com
+curl -k https://arquisoft-alb-XXXXX.us-east-1.elb.amazonaws.com
 ```
 
-### Logs Not Appearing in CloudWatch
+### API Proxy No Funciona
 
-**Check:**
-1. CloudWatch Logs Agent status on EC2 instance:
-   ```bash
-   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-     -a query \
-     -m ec2
-   ```
+**Error:** Registro de errores de Nginx: `name not known` o `connect() failed`
 
-2. Agent logs:
-   ```bash
-   cat /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
-   ```
-
-### API Proxy Not Working
-
-**Error:** Nginx error log: `name not known` or `connect() failed`
-
-**Check:**
-1. Verify ALB is running:
+**Verificar:**
+1. Que el ALB está ejecutándose:
    ```bash
    terraform output alb_dns_name
    ```
 
-2. Verify DNS is correctly injected in Nginx config:
+2. Que el DNS está correctamente inyectado en la configuración de Nginx:
    ```bash
    ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<frontend-ip>
    grep proxy_pass /etc/nginx/sites-available/frontend
    ```
 
-3. Test backend connectivity from frontend:
+3. Conectividad del backend desde el frontend:
    ```bash
    curl http://<alb-dns>:8000/health
    ```
 
 ---
 
-## Next Steps
+## Próximos Pasos
 
-After completing verification:
+Después de completar la verificación:
 
-1. Run integration tests against the application
-2. Configure CloudWatch alarms for critical metrics
-3. Set up cost monitoring and alerts
-4. Plan for certificate renewal (365 days before expiration)
-5. Document any custom configurations or changes
+1. Ejecutar pruebas de integración contra la aplicación
+2. Configurar alarmas de CloudWatch para métricas críticas
+3. Establecer monitoreo de costos y alertas
+4. Planificar renovación de certificados (365 días antes de expiración)
+5. Documentar cualquier configuración personalizada o cambios realizados
 
 ---
 
-## Support & Questions
+## Soporte y Preguntas
 
-- Terraform Configuration: `terraform/`
-- Infrastructure Outputs: `terraform output`
-- CloudWatch Logs: AWS Console > CloudWatch > Log Groups
-- SES Configuration: AWS Console > SES > Verified Identities / Email Templates
+- Configuración de Terraform: `terraform/`
+- Salidas de Infraestructura: `terraform output`
+- Registros de CloudWatch: AWS Console > CloudWatch > Log Groups (console.aws.amazon.com/cloudwatch)
+- Configuración de SES: AWS Console > SES > Verified Identities / Email Templates (console.aws.amazon.com/ses)
 
-For more information, see:
-- AWS SES Documentation: https://docs.aws.amazon.com/ses/
-- CloudWatch Logs Documentation: https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/
+Para más información, consulte:
+- Documentación de AWS SES: https://docs.aws.amazon.com/ses/
+- Documentación de CloudWatch Logs: https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/

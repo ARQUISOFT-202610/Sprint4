@@ -59,10 +59,10 @@ resource "aws_lb" "main" {
 }
 
 # ─────────────────────────────────────────
-# Target Group
+# Target Group - Django
 # ─────────────────────────────────────────
-resource "aws_lb_target_group" "main" {
-  name        = "${var.alb_name}-tg"
+resource "aws_lb_target_group" "django" {
+  name        = "${var.alb_name}-django-tg"
   port        = var.target_port
   protocol    = var.target_protocol
   vpc_id      = var.vpc_id
@@ -78,7 +78,7 @@ resource "aws_lb_target_group" "main" {
   tags = merge(
     var.tags,
     {
-      Name = "${var.alb_name}-tg"
+      Name = "${var.alb_name}-django-tg"
     }
   )
 }
@@ -119,7 +119,7 @@ resource "aws_lb_listener" "main" {
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.main.arn
+    target_group_arn = aws_lb_target_group.django.arn
   }
 }
 
