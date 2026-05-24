@@ -46,7 +46,7 @@ variable "iam_instance_profile" {
 variable "desired_capacity" {
   description = "Desired number of Celery workers"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "max_size" {

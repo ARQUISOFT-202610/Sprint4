@@ -37,7 +37,7 @@ variable "iam_instance_profile" {
 
 # Auto Scaling
 variable "desired_capacity" {
-  default = 1
+  default = 2
 }
 
 variable "max_size" {
