@@ -8,7 +8,8 @@ This document outlines the manual verification and configuration steps required 
 3. [HTTPS Certificate Information](#https-certificate-information)
 4. [Application Access Points](#application-access-points)
 5. [FastAPI & DynamoDB Local Setup](#fastapi--dynamodb-local-setup)
-6. [Verification Checklist](#verification-checklist)
+6. [Testing FastAPI & DynamoDB](#testing-fastapi--dynamodb)
+7. [Verification Checklist](#verification-checklist)
 
 ---
 
@@ -433,6 +434,29 @@ All logs are retained for **90 days** as per compliance requirements.
 | FastAPI | DynamoDB | 8000 | Ingress | API queries |
 | Internet | FastAPI | 22 | Ingress | SSH management |
 | Internet | DynamoDB | 22 | Ingress | SSH management |
+
+---
+
+## Testing FastAPI & DynamoDB
+
+**Complete Testing Guide:** See `TESTING_FASTAPI_DYNAMODB.md` for comprehensive testing procedures including:
+
+- ✅ FastAPI instance health and connectivity
+- ✅ DynamoDB Local verification and operations
+- ✅ FastAPI ↔ DynamoDB communication
+- ✅ ALB path-based routing validation
+- ✅ Multi-AZ redundancy verification
+- ✅ Troubleshooting common issues
+
+**Quick Start:**
+```bash
+# Test FastAPI via ALB
+curl http://<ALB-DNS>/fastapi/health
+
+# Test DynamoDB Local
+ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<dynamodb-public-ip>
+curl http://localhost:8000/
+```
 
 ---
 
