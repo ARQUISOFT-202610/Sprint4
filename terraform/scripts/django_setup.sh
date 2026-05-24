@@ -124,7 +124,8 @@ MAX_RDS_TIMEOUT=300  # 5 minutes
 
 while [ $RDS_TIMEOUT -lt $MAX_RDS_TIMEOUT ]; do
   if command -v psql &> /dev/null; then
-    if PGPASSWORD="${DB_PASSWORD}" psql -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1;" 2>/dev/null | grep -q "1"; then
+    # Use variables from .env file (already sourced above)
+    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" 2>/dev/null | grep -q "1"; then
       echo "RDS is ready!"
       RDS_READY=true
       break
