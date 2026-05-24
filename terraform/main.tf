@@ -22,13 +22,13 @@ locals {
   key_name = module.ec2_keypair.key_name
 }
 
-# Application Load Balancer for Django Backend
+# Application Load Balancer
 module "alb" {
   source = "./modules/alb"
 
   vpc_id                  = module.network.vpc_id
   subnets                 = module.network.public_subnets
-  alb_name                = "arquisoft-django-alb"
+  alb_name                = "arquisoft-alb"
   alb_port                = 80
   target_port             = 8000
   health_check_path       = "/health/"

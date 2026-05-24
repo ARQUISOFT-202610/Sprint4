@@ -122,3 +122,23 @@ resource "aws_lb_listener" "main" {
     target_group_arn = aws_lb_target_group.main.arn
   }
 }
+
+# ─────────────────────────────────────────
+# ALB Listener Rule - FastAPI Path-Based Routing
+# ─────────────────────────────────────────
+resource "aws_lb_listener_rule" "fastapi_path_routing" {
+  count            = var.enable_fastapi_target ? 1 : 0
+  listener_arn     = aws_lb_listener.main.arn
+  priority         = 1
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.fastapi[0].arn
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/fastapi/*"]
+    }
+  }
+}
