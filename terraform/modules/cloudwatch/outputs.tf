@@ -42,6 +42,16 @@ output "celery_failures_log_group_arn" {
   value       = aws_cloudwatch_log_group.celery_failures.arn
 }
 
+output "fastapi_log_group_name" {
+  description = "FastAPI application log group name"
+  value       = aws_cloudwatch_log_group.fastapi.name
+}
+
+output "fastapi_log_group_arn" {
+  description = "FastAPI application log group ARN"
+  value       = aws_cloudwatch_log_group.fastapi.arn
+}
+
 output "log_groups_summary" {
   description = "Summary of all log groups"
   value = {
@@ -49,6 +59,7 @@ output "log_groups_summary" {
     django_security  = aws_cloudwatch_log_group.django_security.name
     celery_app       = aws_cloudwatch_log_group.celery.name
     celery_failures  = aws_cloudwatch_log_group.celery_failures.name
+    fastapi_app      = aws_cloudwatch_log_group.fastapi.name
     retention_days   = var.retention_days
   }
 }

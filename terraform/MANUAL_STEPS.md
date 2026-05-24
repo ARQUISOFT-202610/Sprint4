@@ -7,7 +7,8 @@ This document outlines the manual verification and configuration steps required 
 2. [SES Email Templates](#ses-email-templates)
 3. [HTTPS Certificate Information](#https-certificate-information)
 4. [Application Access Points](#application-access-points)
-5. [Verification Checklist](#verification-checklist)
+5. [FastAPI & DynamoDB Local Setup](#fastapi--dynamodb-local-setup)
+6. [Verification Checklist](#verification-checklist)
 
 ---
 
@@ -200,32 +201,352 @@ https://arquisoft-django-alb-abcd1234.us-east-1.elb.amazonaws.com/api/
 
 The Nginx frontend proxy forwards `/api/*` requests to the Django ALB backend.
 
-### Celery Flower (Monitoring)
+### FastAPI Microservice (NEW)
 
-Flower provides a web interface for monitoring Celery background tasks.
+FastAPI is a new microservice deployed alongside Django, with its own Auto Scaling Group.
 
-- **Protocol:** HTTP (internal network)
-- **Port:** 5555
-- **URL:** `http://<celery-instance-ip>:5555`
+- **Protocol:** HTTP (proxied through ALB)
+- **Port:** 8001 (application port), 80 (ALB listener)
+- **URL:** `https://<frontend-alb-dns>/fastapi/`
 
-**To access Flower:**
+**To access FastAPI:**
 
-1. Get the Celery instance IP:
+1. Get the FastAPI endpoint through the ALB (same as Django):
    ```bash
+   terraform output alb_dns_name
+   ```
+
+2. Access via ALB:
+   ```
+   https://<alb-dns>/fastapi/
+   ```
+
+3. Direct instance access (if needed):
+   ```bash
+   # Get FastAPI instance IP
    aws ec2 describe-instances \
-     --filters "Name=tag:Name,Values=arquisoft-celery-asg" \
+     --filters "Name=tag:Name,Values=fastapi-instance" \
      --query 'Reservations[0].Instances[0].PublicIpAddress' \
      --region us-east-1
    ```
 
-2. Open in browser:
+### DynamoDB Local (NEW)
+
+DynamoDB Local runs on a dedicated EC2 instance for data persistence during development/testing.
+
+- **Protocol:** HTTP (internal communication only)
+- **Port:** 8000
+- **Endpoint:** `http://<dynamodb-instance-ip>:8000`
+
+**DynamoDB Local details:**
+
+- Runs in **in-memory mode** with shared database (`:sharedDb`)
+- Used exclusively by FastAPI microservice
+- Not directly accessible from frontend
+- Data is **non-persistent** (lost on restart)
+- Suitable for development and testing only
+
+**To verify DynamoDB Local is running:**
+
+1. Get the DynamoDB instance IP:
+   ```bash
+   aws ec2 describe-instances \
+     --filters "Name=tag:Name,Values=arquisoft-dynamodb-local" \
+     --query 'Reservations[0].Instances[0].PublicIpAddress' \
+     --region us-east-1
    ```
-   http://<celery-instance-ip>:5555
+
+2. Test connectivity:
+   ```bash
+   curl http://<dynamodb-instance-ip>:8000/
+   ```
+
+3. Or SSH into instance:
+   ```bash
+   ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<dynamodb-instance-ip>
    ```
 
 ---
 
-## Verification Checklist
+## FastAPI & DynamoDB Local Setup
+
+This new section details the setup and verification of the FastAPI microservice and DynamoDB Local instance.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────┐
+│           Application Load Balancer             │
+│              (Port 80 / 443 HTTPS)              │
+└──────────────┬──────────────────────────────────┘
+               │
+       ┌───────┴────────┐
+       │                │
+   ┌───▼────┐      ┌───▼────────┐
+   │ Django │      │  FastAPI   │
+   │  (8000)│      │   (8001)   │
+   └────────┘      └───┬────────┘
+                       │
+                       │ DynamoDB connection
+                       │ (port 8000)
+                       │
+                   ┌───▼──────────────┐
+                   │ DynamoDB Local   │
+                   │   (port 8000)    │
+                   └──────────────────┘
+```
+
+### Module Details
+
+#### FastAPI Module (`ec2_fastapi`)
+
+**Location:** `terraform/modules/ec2_fastapi/`
+
+**Resources:**
+- Security Group: `arquisoft-fastapi-ec2-sg`
+  - Ingress: Port 8001 from ALB
+  - Ingress: Port 22 (SSH) from anywhere
+  - Egress: All traffic allowed
+
+- Launch Template: `fastapi-lt-*`
+  - AMI: Ubuntu 24.04 LTS (same as Django)
+  - Instance type: t2.micro
+  - User data: `fastapi_setup.sh`
+
+- Auto Scaling Group: `arquisoft-fastapi-asg`
+  - Desired: 1
+  - Min: 1
+  - Max: 3
+  - Health check: EC2 type
+
+**Environment Variables:**
+```
+DYNAMODB_ENDPOINT=http://<dynamodb-private-ip>:8000
+AWS_REGION=us-east-1
+AWS_CLOUDWATCH_LOG_GROUP=/arquisoft/fastapi
+AWS_CLOUDWATCH_RETENTION_DAYS=90
+FASTAPI_DEBUG=False
+```
+
+#### DynamoDB Local Module (`ec2_dynamodb`)
+
+**Location:** `terraform/modules/ec2_dynamodb/`
+
+**Resources:**
+- Security Group: `arquisoft-dynamodb-ec2-sg`
+  - Ingress: Port 8000 from FastAPI SG
+  - Ingress: Port 22 (SSH) from anywhere
+  - Egress: All traffic allowed
+
+- EC2 Instance: `arquisoft-dynamodb-local`
+  - AMI: Ubuntu 24.04 LTS
+  - Instance type: t2.micro
+  - User data: `dynamodb_setup.sh`
+  - **NOT in Auto Scaling Group** (stateful service)
+
+**DynamoDB Local Configuration:**
+- Mode: In-memory with shared database
+- Port: 8000
+- Logging: Local only (`/var/log/dynamodb/dynamodb.log`) - NOT sent to CloudWatch
+
+### Setup Scripts
+
+#### `fastapi_setup.sh`
+
+**Purpose:** Deploy and configure FastAPI application on EC2
+
+**Steps:**
+1. Update system packages
+2. Install Python 3.12 and dependencies
+3. Install CloudWatch Logs Agent
+4. Clone application repository from GitHub
+5. Create Python virtual environment
+6. Install Python dependencies from `requirements.txt`
+7. Configure environment variables (.env)
+8. Create Uvicorn systemd service
+9. Start FastAPI application on port 8001
+10. Verify application is running
+11. Send logs to CloudWatch
+
+**Logs generated:**
+- `/var/log/user-data.log` → CloudWatch: `/arquisoft/fastapi/{instance_id}-setup`
+- `/var/log/uvicorn/access.log` → CloudWatch: `/arquisoft/fastapi/{instance_id}-access`
+- `/var/log/uvicorn/error.log` → CloudWatch: `/arquisoft/fastapi/{instance_id}-error`
+
+#### `dynamodb_setup.sh`
+
+**Purpose:** Deploy and configure DynamoDB Local on EC2
+
+**Steps:**
+1. Update system packages
+2. Install Java (required by DynamoDB Local)
+3. Download DynamoDB Local (latest version)
+4. Extract and setup DynamoDB Local
+5. Create systemd service for DynamoDB
+6. Start DynamoDB Local on port 8000
+7. Configure permissions
+8. Verify DynamoDB Local is responding
+
+**Logs generated:**
+- `/var/log/user-data.log` - Local setup logs (not sent to CloudWatch)
+- `/var/log/dynamodb/dynamodb.log` - DynamoDB service logs (local only)
+
+**DynamoDB Local Service:**
+```ini
+[Unit]
+Description=DynamoDB Local Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/dynamodb
+ExecStart=/usr/bin/java -Djava.library.path=/opt/dynamodb/DynamoDBLocal_lib \
+  -jar /opt/dynamodb/DynamoDBLocal.jar \
+  -sharedDb \
+  -inMemory \
+  -port 8000
+```
+
+### CloudWatch Integration
+
+New log groups have been added for FastAPI and DynamoDB:
+
+```
+/arquisoft/fastapi
+├── {instance_id}-setup     (setup logs)
+├── {instance_id}-access    (HTTP access logs)
+└── {instance_id}-error     (application errors)
+```
+
+**Note:** DynamoDB Local logs are stored locally on the instance at `/var/log/dynamodb/dynamodb.log` and are NOT sent to CloudWatch.
+
+All logs are retained for **90 days** as per compliance requirements.
+
+### Security Group Communication
+
+**Established rules:**
+
+| From | To | Port | Type | Purpose |
+|------|-----|------|------|---------|
+| ALB | FastAPI | 8001 | Ingress | Health checks & traffic |
+| FastAPI | DynamoDB | 8000 | Ingress | API queries |
+| Internet | FastAPI | 22 | Ingress | SSH management |
+| Internet | DynamoDB | 22 | Ingress | SSH management |
+
+---
+
+## FastAPI & DynamoDB Verification Checklist
+
+After deployment, verify the new services:
+
+### FastAPI ✓
+- [ ] FastAPI ASG created with 1 instance (min: 1, max: 3)
+- [ ] FastAPI instance has public IP and can be SSH'd
+- [ ] FastAPI listening on port 8001 (verify with `ss -tulpn`)
+- [ ] FastAPI application code deployed at `/app`
+- [ ] CloudWatch logs appearing in `/arquisoft/fastapi` within 1-2 minutes
+- [ ] FastAPI responds to health check endpoint: `/health`
+- [ ] FastAPI can connect to DynamoDB Local endpoint
+
+### DynamoDB Local ✓
+- [ ] DynamoDB instance created and running
+- [ ] DynamoDB instance has public IP and can be SSH'd
+- [ ] Java installed on DynamoDB instance
+- [ ] DynamoDB Local listening on port 8000
+- [ ] DynamoDB Local service running (check with `systemctl status dynamodb`)
+- [ ] DynamoDB Local responds to HTTP requests: `curl http://<dynamodb-ip>:8000/`
+- [ ] Data persistence verified (create table, verify after restart)
+
+### ALB Target Groups ✓
+- [ ] Django target group: port 8000 (Django)
+- [ ] FastAPI target group: port 8001 (FastAPI)
+- [ ] Both target groups health checks passing
+- [ ] Traffic routing correctly based on ports
+
+---
+
+## Testing FastAPI to DynamoDB Communication
+
+### From FastAPI Instance
+
+SSH into FastAPI instance and test:
+
+```bash
+ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<fastapi-instance-ip>
+
+# Test DynamoDB endpoint
+curl http://<dynamodb-private-ip>:8000/
+
+# Check logs
+tail -f /var/log/uvicorn/access.log
+
+# Verify service is running
+systemctl status fastapi
+```
+
+### From Local Machine
+
+If you have the DynamoDB instance IP:
+
+```bash
+# Test direct access
+curl http://<dynamodb-instance-ip>:8000/
+
+# List tables (if AWS CLI installed)
+aws dynamodb list-tables \
+  --endpoint-url http://<dynamodb-instance-ip>:8000 \
+  --region us-east-1
+```
+
+---
+
+## Troubleshooting FastAPI & DynamoDB
+
+### FastAPI not starting
+
+**Check logs:**
+```bash
+ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<fastapi-instance-ip>
+tail -100 /var/log/user-data.log
+journalctl -u fastapi -n 50
+```
+
+**Common issues:**
+- Python dependencies not installed → Check `pip install -r requirements.txt`
+- DynamoDB endpoint not set → Verify `.env` file contains `DYNAMODB_ENDPOINT`
+- Port 8001 already in use → Check with `ss -tulpn | grep 8001`
+
+### DynamoDB Local not starting
+
+**Check logs:**
+```bash
+ssh -i ~/.ssh/arquisoft-key.pem ubuntu@<dynamodb-instance-ip>
+tail -100 /var/log/user-data.log
+systemctl status dynamodb
+journalctl -u dynamodb -n 50
+```
+
+**Common issues:**
+- Java not installed → `apt-get install default-jre-headless`
+- Port 8000 already in use → `lsof -i :8000`
+- Download failed → Manual download and extraction needed
+
+### FastAPI cannot reach DynamoDB
+
+**Verify:**
+1. Security group allows port 8000 from FastAPI
+2. DynamoDB instance is running
+3. Correct private IP in FastAPI environment variables
+4. Network connectivity: `ping <dynamodb-private-ip>` from FastAPI instance
+5. Port is listening: `ss -tulpn | grep 8000` on DynamoDB instance
+
+```bash
+# From FastAPI instance
+curl http://<dynamodb-private-ip>:8000/
+```
+
+---
 
 After deployment and manual configuration, verify everything works:
 
@@ -248,12 +569,15 @@ After deployment and manual configuration, verify everything works:
 
 ### Logs & Monitoring ✓
 - [ ] CloudWatch log groups created:
-  - `/arquisoft/django`
-  - `/arquisoft/django/security`
-  - `/arquisoft/celery`
-  - `/arquisoft/celery/failures`
+   - `/arquisoft/django`
+   - `/arquisoft/django/security`
+   - `/arquisoft/celery`
+   - `/arquisoft/celery/failures`
+   - `/arquisoft/fastapi` (NEW)
 - [ ] Logs appearing in CloudWatch within 1-2 minutes of first request
 - [ ] Security logs captured for authentication/authorization events
+- [ ] FastAPI logs appearing in `/arquisoft/fastapi`
+- [ ] DynamoDB Local logs stored locally at `/var/log/dynamodb/dynamodb.log` (not in CloudWatch)
 
 ### Database ✓
 - [ ] RDS PostgreSQL instance running

@@ -84,6 +84,32 @@ resource "aws_lb_target_group" "main" {
 }
 
 # ─────────────────────────────────────────
+# Target Group for FastAPI (Optional)
+# ─────────────────────────────────────────
+resource "aws_lb_target_group" "fastapi" {
+  count       = var.enable_fastapi_target ? 1 : 0
+  name        = "${var.alb_name}-fastapi-tg"
+  port        = var.fastapi_target_port
+  protocol    = var.target_protocol
+  vpc_id      = var.vpc_id
+  
+  health_check {
+    path                = var.fastapi_health_check_path
+    interval            = var.health_check_interval
+    timeout             = var.health_check_timeout
+    healthy_threshold   = var.healthy_threshold
+    unhealthy_threshold = var.unhealthy_threshold
+  }
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.alb_name}-fastapi-tg"
+    }
+  )
+}
+
+# ─────────────────────────────────────────
 # ALB Listener
 # ─────────────────────────────────────────
 resource "aws_lb_listener" "main" {

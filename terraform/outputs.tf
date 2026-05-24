@@ -50,29 +50,34 @@ output "private_subnet_azs" {
 }
 
 # ─────────────────────────────────────────
-# Django (EC2 + ALB) Outputs
+# Application Load Balancer (ALB) Outputs
 # ─────────────────────────────────────────
-output "django_alb_dns_name" {
-  description = "Django ALB DNS name (access your app via this URL)"
+output "alb_dns_name" {
+  description = "ALB DNS name (access your app via this URL)"
   value       = module.alb.alb_dns_name
 }
 
-output "django_alb_zone_id" {
-  description = "Zone ID of Django ALB"
+output "alb_zone_id" {
+  description = "Zone ID of ALB"
   value       = module.alb.alb_zone_id
 }
 
-output "django_alb_arn" {
-  description = "ARN of Django ALB"
+output "alb_arn" {
+  description = "ARN of ALB"
   value       = module.alb.alb_arn
 }
 
 output "django_target_group_arn" {
-  description = "Django ALB Target Group ARN"
+  description = "Django ALB Target Group ARN (port 8000)"
   value       = module.alb.target_group_arn
 }
 
-output "django_alb_sg_id" {
+output "fastapi_target_group_arn" {
+  description = "FastAPI ALB Target Group ARN (port 8001)"
+  value       = module.alb.fastapi_target_group_arn
+}
+
+output "alb_sg_id" {
   description = "ALB Security Group ID"
   value       = module.alb.alb_sg_id
 }
@@ -85,6 +90,42 @@ output "django_asg_name" {
 output "django_sg_id" {
   description = "Django EC2 Security Group ID"
   value       = module.ec2_django.django_sg_id
+}
+
+# ─────────────────────────────────────────
+# FastAPI (EC2 + ASG) Outputs - NEW
+# ─────────────────────────────────────────
+output "fastapi_asg_name" {
+  description = "FastAPI Auto Scaling Group name"
+  value       = module.ec2_fastapi.asg_name
+}
+
+output "fastapi_sg_id" {
+  description = "FastAPI EC2 Security Group ID"
+  value       = module.ec2_fastapi.fastapi_sg_id
+}
+
+# ─────────────────────────────────────────
+# DynamoDB Local (EC2) Outputs - NEW
+# ─────────────────────────────────────────
+output "dynamodb_instance_id" {
+  description = "DynamoDB Local EC2 Instance ID"
+  value       = module.ec2_dynamodb.instance_id
+}
+
+output "dynamodb_private_ip" {
+  description = "DynamoDB Local EC2 Private IP (used by FastAPI)"
+  value       = module.ec2_dynamodb.private_ip
+}
+
+output "dynamodb_public_ip" {
+  description = "DynamoDB Local EC2 Public IP (for SSH access)"
+  value       = module.ec2_dynamodb.public_ip
+}
+
+output "dynamodb_sg_id" {
+  description = "DynamoDB Local Security Group ID"
+  value       = module.ec2_dynamodb.dynamodb_sg_id
 }
 
 # ─────────────────────────────────────────
@@ -169,12 +210,13 @@ output "sqs_queue_name" {
 # CloudWatch Logs (ASR2 - Audit Logs)
 # ─────────────────────────────────────────
 output "cloudwatch_log_groups" {
-  description = "CloudWatch log groups for Django, Celery, and security events"
+  description = "CloudWatch log groups for Django, Celery, and FastAPI (DynamoDB logs are local only)"
   value = {
     django              = module.cloudwatch.django_log_group_name
     django_security     = module.cloudwatch.django_security_log_group_name
     celery              = module.cloudwatch.celery_log_group_name
     celery_failures     = module.cloudwatch.celery_failures_log_group_name
+    fastapi             = module.cloudwatch.fastapi_log_group_name
     retention_days      = 90
   }
 }
@@ -186,6 +228,7 @@ output "cloudwatch_log_groups_arns" {
     django_security     = module.cloudwatch.django_security_log_group_arn
     celery              = module.cloudwatch.celery_log_group_arn
     celery_failures     = module.cloudwatch.celery_failures_log_group_arn
+    fastapi             = module.cloudwatch.fastapi_log_group_arn
   }
 }
 
@@ -224,12 +267,17 @@ output "infrastructure_summary" {
     environment      = var.environment
     region           = var.region
     vpc_id           = module.network.vpc_id
-    app_url          = "http://${module.alb.alb_dns_name}"
+    alb_url          = "https://${module.alb.alb_dns_name}"
+    backend_django   = "https://${module.alb.alb_dns_name}/api/ (port 8000)"
+    backend_fastapi  = "https://${module.alb.alb_dns_name}/fastapi/ (port 8001) - NEW"
     db_endpoint      = module.rds.db_endpoint
+    dynamodb_endpoint = "http://${module.ec2_dynamodb.private_ip}:8000 - NEW"
     sqs_queue_url    = module.sqs.queue_url
+    django_workers   = module.ec2_django.asg_name
+    fastapi_workers  = module.ec2_fastapi.asg_name
     celery_workers   = module.ec2_celery.asg_name
     frontend_servers = module.ec2_frontend.asg_name
-    cloudwatch_logs  = "4 log groups created (/arquisoft/django, /arquisoft/django/security, /arquisoft/celery, /arquisoft/celery/failures)"
-    ses_configured   = "2 email templates configured (analisis-resultado-exito, analisis-resultado-error)"
+    cloudwatch_logs  = "5 log groups created (Django, Django Security, Celery, Celery Failures, FastAPI)"
+    ses_configured   = "2 email templates configured"
   }
 }

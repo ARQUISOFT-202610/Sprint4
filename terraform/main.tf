@@ -26,12 +26,15 @@ locals {
 module "alb" {
   source = "./modules/alb"
 
-  vpc_id            = module.network.vpc_id
-  subnets           = module.network.public_subnets
-  alb_name          = "arquisoft-django-alb"
-  alb_port          = 80
-  target_port       = 8000
-  health_check_path = "/health/"
+  vpc_id                  = module.network.vpc_id
+  subnets                 = module.network.public_subnets
+  alb_name                = "arquisoft-django-alb"
+  alb_port                = 80
+  target_port             = 8000
+  health_check_path       = "/health/"
+  enable_fastapi_target   = true
+  fastapi_target_port     = 8001
+  fastapi_health_check_path = "/health"
 
   tags = local.common_tags
 }
@@ -162,6 +165,73 @@ module "ec2_celery" {
   tags = local.common_tags
 
   depends_on = [module.rds, module.sqs]
+}
+
+# ─────────────────────────────────────────────────────
+# EC2 DynamoDB Local (for FastAPI data storage)
+# ─────────────────────────────────────────────────────
+module "ec2_dynamodb" {
+  source = "./modules/ec2_dynamodb"
+
+  vpc_id          = module.network.vpc_id
+  public_subnets = module.network.public_subnets
+  ami_id          = local.ami_id
+  key_name        = local.key_name
+  env_file        = local.generated_env_file
+  iam_instance_profile = "LabInstanceProfile"
+
+  tags = local.common_tags
+}
+
+# ─────────────────────────────────────────────────────
+# Dynamic .env for FastAPI (with DynamoDB endpoint)
+# ─────────────────────────────────────────────────────
+locals {
+  dynamodb_endpoint = "http://${module.ec2_dynamodb.private_ip}:8000"
+  
+  generated_env_file_fastapi = <<-EOT
+# FastAPI Environment Variables
+DYNAMODB_ENDPOINT=${local.dynamodb_endpoint}
+AWS_REGION=us-east-1
+AWS_CLOUDWATCH_LOG_GROUP=/arquisoft/fastapi
+AWS_CLOUDWATCH_RETENTION_DAYS=90
+FASTAPI_DEBUG=False
+  EOT
+}
+
+# ─────────────────────────────────────────────────────
+# EC2 FastAPI (uses dynamic .env with DynamoDB endpoint)
+# ─────────────────────────────────────────────────────
+module "ec2_fastapi" {
+  source = "./modules/ec2_fastapi"
+
+  vpc_id               = module.network.vpc_id
+  public_subnets       = module.network.public_subnets
+  ami_id               = local.ami_id
+  key_name             = local.key_name
+  github_token         = var.github_token
+  env_file             = local.generated_env_file_fastapi
+  target_group_arn     = module.alb.fastapi_target_group_arn
+  alb_sg_id            = module.alb.alb_sg_id
+  iam_instance_profile = "LabInstanceProfile"
+
+  tags = local.common_tags
+
+  depends_on = [module.ec2_dynamodb]
+}
+
+# ─────────────────────────────────────────────────────
+# Security Group Rules - FastAPI <-> DynamoDB
+# ─────────────────────────────────────────────────────
+resource "aws_security_group_rule" "fastapi_to_dynamodb" {
+  type                     = "ingress"
+  from_port                = 8000
+  to_port                  = 8000
+  protocol                 = "tcp"
+  source_security_group_id = module.ec2_fastapi.fastapi_sg_id
+  security_group_id        = module.ec2_dynamodb.dynamodb_sg_id
+
+  description = "Allow FastAPI to connect to DynamoDB Local"
 }
 
 # EC2 Frontend (Nginx + React)

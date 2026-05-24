@@ -22,7 +22,7 @@ key_name = "arquisoft-key"
 # Requirements: 8-128 characters, at least one uppercase, one lowercase, one digit, one special character
 db_password = "ArquiSoft2026Dev!"
 
-# GitHub PAT (Personal Access Token) for cloning Sprint3 repository
+# GitHub PAT (Personal Access Token) for cloning Sprint4 repository
 # Create at: https://github.com/settings/tokens/new
 # Scopes needed: repo (full control of private repositories)
 github_token = "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"

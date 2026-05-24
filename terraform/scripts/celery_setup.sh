@@ -62,9 +62,9 @@ touch /var/log/user-data.log /var/log/celery/worker.log /var/log/celery/flower.l
 echo "=== Cloning Repository ==="
 
 cd /home/ubuntu
-git clone https://x-access-token:${github_token}@github.com/ARQUISOFT-202610/Sprint3.git /app
+git clone https://x-access-token:${github_token}@github.com/ARQUISOFT-202610/Sprint4.git /app
 cd /app
-git remote set-url origin https://github.com/ARQUISOFT-202610/Sprint3.git
+git remote set-url origin https://github.com/ARQUISOFT-202610/Sprint4.git
 chown -R ubuntu:ubuntu /app
 
 echo "=== Creating Virtual Environment ==="

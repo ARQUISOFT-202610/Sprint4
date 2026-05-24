@@ -84,11 +84,11 @@ echo "=== Cloning Repository ==="
 
 # Clone repo with GitHub token (then remove token from remote)
 cd /home/ubuntu
-git clone https://x-access-token:${github_token}@github.com/ARQUISOFT-202610/Sprint3.git /app
+git clone https://x-access-token:${github_token}@github.com/ARQUISOFT-202610/Sprint4.git /app
 cd /app
 
 # Remove token from remote URL
-git remote set-url origin https://github.com/ARQUISOFT-202610/Sprint3.git
+git remote set-url origin https://github.com/ARQUISOFT-202610/Sprint4.git
 
 echo "=== Installing npm Dependencies ==="
 

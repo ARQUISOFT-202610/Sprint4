@@ -58,3 +58,18 @@ resource "aws_cloudwatch_log_group" "celery_failures" {
     }
   )
 }
+
+# Log Group 5: FastAPI Application Logs
+resource "aws_cloudwatch_log_group" "fastapi" {
+  name              = "${var.log_group_prefix}/fastapi"
+  retention_in_days = var.retention_days
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "arquisoft-fastapi-logs"
+    }
+  )
+}
+
+

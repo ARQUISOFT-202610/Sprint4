@@ -44,7 +44,7 @@ This project is a production-ready Django application with:
 ## Directory Structure
 
 ```
-Sprint3/
+Sprint4/
 ├── backend/                    # Django application
 │   ├── application/            # Use cases and DTOs
 │   ├── core/                  # Entities and exceptions

@@ -68,6 +68,25 @@ variable "unhealthy_threshold" {
   default     = 2
 }
 
+# FastAPI Target Group variables
+variable "enable_fastapi_target" {
+  description = "Enable FastAPI target group"
+  type        = bool
+  default     = false
+}
+
+variable "fastapi_target_port" {
+  description = "Port for FastAPI target instances"
+  type        = number
+  default     = 8001
+}
+
+variable "fastapi_health_check_path" {
+  description = "FastAPI health check path"
+  type        = string
+  default     = "/health"
+}
+
 variable "tags" {
   description = "Common tags for all resources"
   type        = map(string)
