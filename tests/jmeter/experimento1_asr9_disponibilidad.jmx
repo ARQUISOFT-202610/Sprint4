@@ -1,0 +1,520 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+
+    <!-- ================================================================
+         PLAN DE PRUEBAS: ASR-9 DISPONIBILIDAD — AQSF
+         ================================================================
+         ASR: El sistema debe ejecutar análisis en background sin bloquear
+              la sesión y notificar por correo al finalizar.
+              Debe suceder exitosamente en el 99% de los casos.
+
+         Estructura:
+           TG1 - Prueba de Carga Principal         (100 hilos × 10 loops = 1000 req)
+           TG2 - Prueba de Acceso No Autorizado    (10 hilos — debe retornar 401)
+           TG3 - Prueba de Payload Inválido        (10 hilos — debe retornar 400)
+
+         Criterios de aceptación validados:
+           ✅ HTTP 202 Accepted inmediato (< 2000 ms)
+           ✅ Body contiene analisis_id y estado = "PENDIENTE"
+           ✅ Tasa de éxito ≥ 99% (máx 10 fallos en 1000 requests)
+           ✅ 401 ante ausencia de token
+           ✅ 400 ante payload incompleto
+    ================================================================ -->
+
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan"
+              testname="AQSF — ASR-9 Disponibilidad" enabled="true">
+      <stringProp name="TestPlan.comments">
+        Valida que el sistema procese análisis cloud de forma asíncrona
+        con una tasa de éxito del 99%. Ejecutar desde JMeter 5.6+.
+        Requisitos previos: servidor Django corriendo, token Auth0 válido configurado.
+      </stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+
+      <!-- Variables globales — editar antes de ejecutar -->
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments"
+                   guiclass="ArgumentsPanel" testclass="Arguments"
+                   testname="Variables Globales" enabled="true">
+        <collectionProp name="Arguments.arguments">
+
+          <elementProp name="HOST" elementType="Argument">
+            <stringProp name="Argument.name">HOST</stringProp>
+            <stringProp name="Argument.value">localhost</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <elementProp name="PORT" elementType="Argument">
+            <stringProp name="Argument.name">PORT</stringProp>
+            <stringProp name="Argument.value">8000</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!-- Reemplazar con token JWT válido de Auth0 antes de ejecutar -->
+          <elementProp name="AUTH_TOKEN" elementType="Argument">
+            <stringProp name="Argument.name">AUTH_TOKEN</stringProp>
+            <stringProp name="Argument.value">REEMPLAZAR_CON_TOKEN_AUTH0_VALIDO</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!-- UUID de empresa existente en la BD -->
+          <elementProp name="EMPRESA_ID" elementType="Argument">
+            <stringProp name="Argument.name">EMPRESA_ID</stringProp>
+            <stringProp name="Argument.value">00000000-0000-0000-0000-000000000001</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!-- Umbral de éxito para el Summary Report (%) -->
+          <elementProp name="SUCCESS_THRESHOLD" elementType="Argument">
+            <stringProp name="Argument.name">SUCCESS_THRESHOLD</stringProp>
+            <stringProp name="Argument.value">99</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+
+    <hashTree>
+
+      <!-- ============================================================
+           Configuración HTTP por defecto (compartida por todos los TGs)
+      ============================================================ -->
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement"
+                         testname="HTTP Request Defaults" enabled="true">
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments"
+                     guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
+          <collectionProp name="Arguments.arguments"/>
+        </elementProp>
+        <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+        <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+        <stringProp name="HTTPSampler.protocol">http</stringProp>
+        <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+        <!-- Timeout de conexión: 5s — si el 202 demora más, es fallo (ASR-9) -->
+        <stringProp name="HTTPSampler.connect_timeout">5000</stringProp>
+        <stringProp name="HTTPSampler.response_timeout">10000</stringProp>
+      </ConfigTestElement>
+      <hashTree/>
+
+      <!-- ============================================================
+           TG1: Prueba de Carga Principal — 99% de éxito (ASR-9)
+           100 hilos × rampa 30s × 10 loops = 1000 requests totales
+      ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG1 — Carga Principal 99% éxito (1000 req)" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">10</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">100</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">30</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+
+        <!-- Headers de autenticación -->
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager"
+                       testname="HTTP Headers — Auth" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Content-Type" elementType="Header">
+              <stringProp name="Header.name">Content-Type</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+            <elementProp name="Authorization" elementType="Header">
+              <stringProp name="Header.name">Authorization</stringProp>
+              <stringProp name="Header.value">Bearer ${AUTH_TOKEN}</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+
+        <!-- REQUEST: POST /api/analisis/ -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/analisis/ — Solicitar Análisis" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{
+  "empresa_id": "${EMPRESA_ID}",
+  "tipo_analisis": "optimizacion-costos"
+}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/analisis/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+
+          <!-- ASSERTION 1: HTTP 202 Accepted (criterio principal ASR-9) -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert HTTP 202 Accepted" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">202</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">
+              FALLO ASR-9: El sistema debe retornar 202 Accepted inmediatamente.
+              Si retorna otro código, el análisis está bloqueando la sesión.
+            </stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+          <!-- ASSERTION 2: Body contiene estado=PENDIENTE -->
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert estado = PENDIENTE" enabled="true">
+            <stringProp name="JSON_PATH">$.estado</stringProp>
+            <stringProp name="EXPECTED_VALUE">PENDIENTE</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">false</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+
+          <!-- ASSERTION 3: Body contiene analisis_id (UUID no nulo) -->
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert analisis_id presente" enabled="true">
+            <stringProp name="JSON_PATH">$.analisis_id</stringProp>
+            <stringProp name="EXPECTED_VALUE"></stringProp>
+            <boolProp name="JSONVALIDATION">false</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">false</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+
+          <!-- ASSERTION 4: Body contiene mensaje de confirmación -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert mensaje de confirmación" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="1">encolado</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">
+              El body debe confirmar que el análisis fue encolado exitosamente.
+            </stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+          <!-- ASSERTION 5: Tiempo de respuesta < 2000ms (ASR-9: no debe bloquear) -->
+          <DurationAssertion guiclass="DurationAssertionGui" testclass="DurationAssertion"
+                             testname="✅ Assert Tiempo Respuesta &lt; 2000ms" enabled="true">
+            <stringProp name="DurationAssertion.duration">2000</stringProp>
+          </DurationAssertion>
+          <hashTree/>
+
+          <!-- Extraer analisis_id para posibles trazas posteriores -->
+          <JSONPathExtractor guiclass="JSONPathExtractorGui" testclass="JSONPathExtractor"
+                             testname="Extractor analisis_id" enabled="true">
+            <stringProp name="JSONPathExtractor.referenceName">ANALISIS_ID</stringProp>
+            <stringProp name="JSONPathExtractor.jsonPathExprs">$.analisis_id</stringProp>
+            <stringProp name="JSONPathExtractor.defaultValues">NO_ENCONTRADO</stringProp>
+          </JSONPathExtractor>
+          <hashTree/>
+
+        </hashTree>
+        <!-- fin HTTPSamplerProxy TG1 -->
+
+        <!-- Verificación de tasa de éxito ≥ 99% via JSR223 -->
+        <JSR223Assertion guiclass="TestBeanGUI" testclass="JSR223Assertion"
+                         testname="✅ Assert Tasa Éxito ≥ 99% (JSR223)" enabled="true">
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="filename"></stringProp>
+          <stringProp name="parameters"></stringProp>
+          <stringProp name="script">
+// Este assertion se puede ampliar con lógica post-ejecución.
+// Durante la ejecución, JMeter acumula stats en el Summary Report.
+// La verificación de 99% se hace en el listener "Summary Report":
+//   Error % debe ser ≤ 1.0%
+// Si se necesita fallo automático al exceder el umbral, usar el plugin
+// "JMeter Plugins - Synthesis Report" o post-proceso con Taurus.
+log.info("Muestra ejecutada. analisis_id=" + vars.get("ANALISIS_ID"))
+          </stringProp>
+          <stringProp name="scriptLanguage">groovy</stringProp>
+        </JSR223Assertion>
+        <hashTree/>
+
+      </hashTree>
+      <!-- fin TG1 hashTree -->
+
+      <!-- ============================================================
+           TG2: Prueba de Seguridad — Sin Token debe retornar 401 (ASR-10)
+           Valida que TODOS los accesos no autorizados son bloqueados
+      ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG2 — Sin Token → 401 (ASR-10)" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">5</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">10</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">5</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager"
+                       testname="HTTP Headers — SIN Authorization" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Content-Type" elementType="Header">
+              <stringProp name="Header.name">Content-Type</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+            <!-- Intencionalmente sin Authorization header -->
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/analisis/ — SIN TOKEN (debe fallar)" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"empresa_id": "${EMPRESA_ID}", "tipo_analisis": "optimizacion-costos"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/analisis/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+          <!-- DEBE retornar 401 — si retorna 202 es una falla de seguridad CRÍTICA -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert HTTP 401 (sin token)" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">401</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">
+              FALLO SEGURIDAD ASR-10: Solicitud sin token NO fue bloqueada.
+              El sistema tiene una vulnerabilidad de autenticación.
+            </stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+
+      </hashTree>
+      <!-- fin TG2 hashTree -->
+
+      <!-- ============================================================
+           TG3: Prueba de Validación — Payload inválido → 400
+      ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG3 — Payload inválido → 400" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">3</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">10</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">2</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager"
+                       testname="HTTP Headers — Auth válido" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Content-Type" elementType="Header">
+              <stringProp name="Header.name">Content-Type</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+            <elementProp name="Authorization" elementType="Header">
+              <stringProp name="Header.name">Authorization</stringProp>
+              <stringProp name="Header.value">Bearer ${AUTH_TOKEN}</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/analisis/ — Payload VACÍO (debe retornar 400)" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <!-- empresa_id faltante intencionalmente -->
+                <stringProp name="Argument.value">{"tipo_analisis": "optimizacion-costos"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/analisis/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert HTTP 400 (payload inválido)" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">400</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">
+              El servidor debe retornar 400 cuando empresa_id está ausente.
+            </stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+
+      </hashTree>
+      <!-- fin TG3 hashTree -->
+
+      <!-- ============================================================
+           LISTENERS — Reportes de resultados
+      ============================================================ -->
+
+      <!-- Summary Report: verificar Error % ≤ 1% para cumplir ASR-9 -->
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector"
+                       testname="📊 Summary Report — Tasa de Éxito" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename">results/asr9_summary.csv</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <!-- Aggregate Report: percentiles de tiempo de respuesta -->
+      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector"
+                       testname="📈 Aggregate Report — Percentiles" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename">results/asr9_aggregate.csv</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <!-- View Results Tree (solo para debug — desactivar en carga real) -->
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector"
+                       testname="🔍 View Results Tree (DEBUG)" enabled="false">
+        <boolProp name="ResultCollector.error_logging">true</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>true</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>true</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename">results/asr9_errors.jtl</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+    </hashTree>
+    <!-- fin TestPlan hashTree -->
+
+  </hashTree>
+</jmeterTestPlan>

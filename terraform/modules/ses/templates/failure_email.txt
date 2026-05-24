@@ -1,0 +1,34 @@
+ArquiSoft - Análisis Completado con Errores
+
+Estimado usuario,
+
+Tu análisis de optimización arquitectónica ha completado con errores.
+
+RESULTADO: FALLIDO
+
+Detalles del Análisis:
+- Estado: Completado con errores
+- Fecha/Hora: {{timestamp}}
+- Tipo de Análisis: Optimización Arquitectónica
+- Duración: {{duration}}
+
+Información del Error:
+{{error_message}}
+
+Acciones Recomendadas:
+1. Revisa los detalles del error más arriba
+2. Verifica los parámetros de entrada de tu análisis
+3. Intenta ejecutar el análisis nuevamente
+4. Si el problema persiste, contacta al soporte
+
+Puedes acceder al panel de control en:
+{{dashboard_url}}
+
+Si tienes preguntas o necesitas soporte técnico, contáctanos a través del portal.
+
+Saludos,
+Equipo ArquiSoft
+
+---
+Este es un mensaje automático. Por favor, no respondas a este correo.
+© 2026 ArquiSoft. Todos los derechos reservados.

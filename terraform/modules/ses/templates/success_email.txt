@@ -1,0 +1,30 @@
+ArquiSoft - Análisis Completado Exitosamente
+
+Estimado usuario,
+
+Tu análisis de optimización arquitectónica ha completado exitosamente.
+
+RESULTADO: EXITOSO
+
+Detalles del Análisis:
+- Estado: Completado sin errores
+- Fecha/Hora: {{timestamp}}
+- Tipo de Análisis: Optimización Arquitectónica
+- Duración: {{duration}}
+
+Puedes acceder a los resultados detallados en el portal de ArquiSoft:
+{{dashboard_url}}
+
+Próximos Pasos:
+1. Revisa los resultados en el dashboard
+2. Analiza las recomendaciones de optimización
+3. Implementa los cambios sugeridos
+
+Si tienes preguntas o necesitas soporte, contáctanos a través del portal.
+
+Saludos,
+Equipo ArquiSoft
+
+---
+Este es un mensaje automático. Por favor, no respondas a este correo.
+© 2026 ArquiSoft. Todos los derechos reservados.

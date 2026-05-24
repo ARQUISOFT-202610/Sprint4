@@ -1,0 +1,762 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+
+    <!-- ================================================================
+         PLAN DE PRUEBAS: ASR-11 SEGURIDAD / INTEGRIDAD — AQSF
+         ================================================================
+         ASR: Cuando se detecta un cambio en la información reportada,
+              el sistema debe identificarlo, registrarlo y alertar al
+              responsable en menos de 60 segundos. En el 100% de los casos.
+
+         Flujo de prueba (secuencial — serialize_threadgroups=true):
+           SETUP  — Crear análisis y obtener analisis_id
+           TG1    — Verificar hash íntegro (análisis recién completado)
+           TG2    — Simular brecha + verificar detección < 60s
+           TG3    — Verificar rechazo de escritura sobre AWS (modo solo lectura)
+           TG4    — Simular múltiples brechas → activar detector de anomalías
+           TG5    — Verificar estado del detector de anomalías
+
+         Criterios de PASO ASR-11:
+           ✅ Hash SHA-256 generado en cada reporte completado
+           ✅ Detección de alteración: HTTP 409 en 100% de casos
+           ✅ Tiempo de detección < 60 000 ms (60 segundos)
+           ✅ Operaciones de escritura sobre AWS rechazadas (100%)
+           ✅ Detector de anomalías activo tras ≥ 3 brechas en 5 min
+    ================================================================ -->
+
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan"
+              testname="AQSF — ASR-11 Seguridad / Integridad" enabled="true">
+      <stringProp name="TestPlan.comments">
+        Requiere servidor Django con DEBUG=True y Worker Celery activo.
+        Ejecutar DESPUÉS de los planes ASR-9 y ASR-10.
+        El ANALISIS_ID_COMPLETADO debe ser un UUID de un análisis en estado COMPLETADO.
+      </stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <!-- Secuencial: cada TG espera al anterior para mantener orden del flujo -->
+      <boolProp name="TestPlan.serialize_threadgroups">true</boolProp>
+
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments"
+                   guiclass="ArgumentsPanel" testclass="Arguments"
+                   testname="Variables Globales" enabled="true">
+        <collectionProp name="Arguments.arguments">
+
+          <elementProp name="HOST" elementType="Argument">
+            <stringProp name="Argument.name">HOST</stringProp>
+            <stringProp name="Argument.value">localhost</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <elementProp name="PORT" elementType="Argument">
+            <stringProp name="Argument.name">PORT</stringProp>
+            <stringProp name="Argument.value">8000</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <elementProp name="AUTH_TOKEN" elementType="Argument">
+            <stringProp name="Argument.name">AUTH_TOKEN</stringProp>
+            <stringProp name="Argument.value">REEMPLAZAR_CON_TOKEN_AUTH0_VALIDO</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <elementProp name="EMPRESA_ID" elementType="Argument">
+            <stringProp name="Argument.name">EMPRESA_ID</stringProp>
+            <stringProp name="Argument.value">00000000-0000-0000-0000-000000000001</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!-- UUID de un análisis YA COMPLETADO (con hash generado).
+               Obtener corriendo primero el plan ASR-9 y anotando un analisis_id. -->
+          <elementProp name="ANALISIS_ID_COMPLETADO" elementType="Argument">
+            <stringProp name="Argument.name">ANALISIS_ID_COMPLETADO</stringProp>
+            <stringProp name="Argument.value">REEMPLAZAR_CON_UUID_ANALISIS_COMPLETADO</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!-- Umbral de tiempo de detección en ms (ASR-11: < 60s = 60000ms) -->
+          <elementProp name="DETECTION_TIMEOUT_MS" elementType="Argument">
+            <stringProp name="Argument.name">DETECTION_TIMEOUT_MS</stringProp>
+            <stringProp name="Argument.value">60000</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+
+    <hashTree>
+
+      <!-- HTTP Defaults -->
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement"
+                         testname="HTTP Request Defaults" enabled="true">
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments"
+                     guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
+          <collectionProp name="Arguments.arguments"/>
+        </elementProp>
+        <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+        <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+        <stringProp name="HTTPSampler.protocol">http</stringProp>
+        <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+        <stringProp name="HTTPSampler.connect_timeout">5000</stringProp>
+        <!-- 70s de timeout para incluir el tiempo de detección de 60s -->
+        <stringProp name="HTTPSampler.response_timeout">70000</stringProp>
+      </ConfigTestElement>
+      <hashTree/>
+
+      <!-- Headers con Auth reutilizables -->
+      <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager"
+                     testname="HTTP Headers — Auth Global" enabled="true">
+        <collectionProp name="HeaderManager.headers">
+          <elementProp name="Content-Type" elementType="Header">
+            <stringProp name="Header.name">Content-Type</stringProp>
+            <stringProp name="Header.value">application/json</stringProp>
+          </elementProp>
+          <elementProp name="Authorization" elementType="Header">
+            <stringProp name="Header.name">Authorization</stringProp>
+            <stringProp name="Header.value">Bearer ${AUTH_TOKEN}</stringProp>
+          </elementProp>
+        </collectionProp>
+      </HeaderManager>
+      <hashTree/>
+
+      <!-- ==============================================================
+           SETUP: Crear un análisis nuevo para usar en TG2-TG4
+           (crea el análisis y extrae el analisis_id para los TGs siguientes)
+      ============================================================== -->
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup"
+                        testname="SETUP — Crear análisis para pruebas" enabled="true">
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <stringProp name="ThreadGroup.on_sample_error">stoptest</stringProp>
+      </SetupThreadGroup>
+
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/analisis/ — Crear análisis de prueba" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"empresa_id": "${EMPRESA_ID}", "tipo_analisis": "optimizacion-costos"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/analisis/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert 202 en creación" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">202</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+          <!-- Extraer el analisis_id para usarlo en TG2-TG4 como variable de prueba -->
+          <JSONPathExtractor guiclass="JSONPathExtractorGui" testclass="JSONPathExtractor"
+                             testname="Extraer NUEVO_ANALISIS_ID" enabled="true">
+            <stringProp name="JSONPathExtractor.referenceName">NUEVO_ANALISIS_ID</stringProp>
+            <stringProp name="JSONPathExtractor.jsonPathExprs">$.analisis_id</stringProp>
+            <stringProp name="JSONPathExtractor.defaultValues">${ANALISIS_ID_COMPLETADO}</stringProp>
+          </JSONPathExtractor>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor"
+                               testname="Guardar analisis_id en property" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="script">
+// Exportar el ID como propiedad del plan (accesible por todos los TGs)
+props.put("NUEVO_ANALISIS_ID", vars.get("NUEVO_ANALISIS_ID"))
+log.info("SETUP: Análisis creado con ID=" + vars.get("NUEVO_ANALISIS_ID"))
+            </stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <!-- fin SETUP -->
+
+      <!-- ==============================================================
+           TG1 — Verificar hash íntegro en reporte completado
+           Valida que el hash SHA-256 fue generado y es correcto
+      ============================================================== -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG1 — Hash íntegro → 200 integro=true" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">5</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">5</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">3</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor"
+                            testname="Leer ANALISIS_ID_COMPLETADO de properties" enabled="true">
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="filename"></stringProp>
+          <stringProp name="parameters"></stringProp>
+          <stringProp name="script">
+vars.put("ANALISIS_ID_ACTUAL", vars.get("ANALISIS_ID_COMPLETADO"))
+          </stringProp>
+          <stringProp name="scriptLanguage">groovy</stringProp>
+        </JSR223PreProcessor>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="GET /api/reportes/.../verify/ — Verificar hash íntegro" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/reportes/${ANALISIS_ID_COMPLETADO}/verify/</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+          <!-- Hash íntegro → debe retornar 200 con integro=true -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert HTTP 200 — Hash íntegro" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">200</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">
+              FALLO ASR-11: El endpoint de verificación no retornó 200 para un reporte íntegro.
+            </stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert integro = true" enabled="true">
+            <stringProp name="JSON_PATH">$.integro</stringProp>
+            <stringProp name="EXPECTED_VALUE">true</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">false</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+
+          <!-- Verificar que el hash SHA-256 está presente (64 chars hex) -->
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert hash_almacenado presente (64 chars)" enabled="true">
+            <stringProp name="JSON_PATH">$.hash_almacenado</stringProp>
+            <stringProp name="EXPECTED_VALUE">[a-f0-9]{64}</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">true</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <!-- fin TG1 -->
+
+      <!-- ==============================================================
+           TG2 — Simular brecha + verificar detección < 60 segundos
+           Flujo: corromper hash → verificar → medir tiempo → Assert < 60s
+      ============================================================== -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG2 — Brecha + Detección &lt; 60s (ASR-11)" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+        <!-- Transaction Controller: mide tiempo total del ciclo brecha → detección -->
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController"
+                               testname="TX — Ciclo completo Brecha→Detección" enabled="true">
+          <boolProp name="TransactionController.includeTimers">true</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+
+          <!-- Paso 1: Corromper el hash del reporte de prueba -->
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                            testname="POST /api/test/integrity-breach/ — Corromper hash" enabled="true">
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{"modo": "hash_invalido"}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.path">/api/test/integrity-breach/${ANALISIS_ID_COMPLETADO}/</stringProp>
+            <stringProp name="HTTPSampler.method">POST</stringProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                               testname="✅ Assert 200 — Brecha simulada OK" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="49586">200</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message">
+                El endpoint de simulación de brecha falló. ¿DEBUG=True está activo?
+              </stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">8</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+
+          <!-- Paso 2: Verificar que el sistema detecta la alteración -->
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                            testname="GET /api/reportes/.../verify/ — Detectar alteración" enabled="true">
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments"/>
+            </elementProp>
+            <stringProp name="HTTPSampler.path">/api/reportes/${ANALISIS_ID_COMPLETADO}/verify/</stringProp>
+            <stringProp name="HTTPSampler.method">GET</stringProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+            <!-- Hash comprometido → debe retornar 409 Conflict -->
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                               testname="✅ Assert HTTP 409 — Alteración detectada" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="49586">409</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.custom_message">
+                FALLO ASR-11: El sistema NO detectó la alteración del hash.
+                Se esperaba HTTP 409, indicando integridad comprometida.
+              </stringProp>
+              <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">8</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+
+            <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                               testname="✅ Assert integro = false" enabled="true">
+              <stringProp name="JSON_PATH">$.integro</stringProp>
+              <stringProp name="EXPECTED_VALUE">false</stringProp>
+              <boolProp name="JSONVALIDATION">true</boolProp>
+              <boolProp name="EXPECT_NULL">false</boolProp>
+              <boolProp name="INVERT">false</boolProp>
+              <boolProp name="ISREGEX">false</boolProp>
+            </JSONPathAssertion>
+            <hashTree/>
+
+            <!-- Verificar que el campo asr11_cumplido es true (tiempo < 60s) -->
+            <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                               testname="✅ Assert asr11_cumplido = true (&lt; 60s)" enabled="true">
+              <stringProp name="JSON_PATH">$.asr11_cumplido</stringProp>
+              <stringProp name="EXPECTED_VALUE">true</stringProp>
+              <boolProp name="JSONVALIDATION">true</boolProp>
+              <boolProp name="EXPECT_NULL">false</boolProp>
+              <boolProp name="INVERT">false</boolProp>
+              <boolProp name="ISREGEX">false</boolProp>
+            </JSONPathAssertion>
+            <hashTree/>
+          </hashTree>
+
+        </hashTree>
+        <!-- fin TransactionController -->
+
+        <!-- Assertion sobre la Transaction completa: tiempo total < 60s -->
+        <DurationAssertion guiclass="DurationAssertionGui" testclass="DurationAssertion"
+                           testname="✅ Assert Tiempo Total Ciclo &lt; 60 000ms (ASR-11)" enabled="true">
+          <stringProp name="DurationAssertion.duration">${DETECTION_TIMEOUT_MS}</stringProp>
+        </DurationAssertion>
+        <hashTree/>
+
+      </hashTree>
+      <!-- fin TG2 -->
+
+      <!-- ==============================================================
+           TG3 — Verificar rechazo de escritura sobre AWS (solo lectura — ASR-11)
+           El sistema nunca debe permitir escritura sobre las APIs cloud
+      ============================================================== -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG3 — Escritura AWS rechazada → 200 rechazado=true" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">5</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">3</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">2</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+        <!-- Intentar put_metric_data (operación de escritura sobre CloudWatch) -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/test/write-rejection/ — put_metric_data (escritura)" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"operacion": "put_metric_data"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/test/write-rejection/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert 200 — Escritura rechazada correctamente" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">200</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">
+              FALLO ASR-11: El endpoint de rechazo no funcionó correctamente.
+            </stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert rechazado = true" enabled="true">
+            <stringProp name="JSON_PATH">$.rechazado</stringProp>
+            <stringProp name="EXPECTED_VALUE">true</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">false</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert log_generado = true" enabled="true">
+            <stringProp name="JSON_PATH">$.log_generado</stringProp>
+            <stringProp name="EXPECTED_VALUE">true</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">false</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+        </hashTree>
+
+        <!-- Intentar create_alarm (otra operación de escritura) -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/test/write-rejection/ — delete_alarm (escritura)" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"operacion": "delete_alarm"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/test/write-rejection/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert rechazado = true (delete_alarm)" enabled="true">
+            <stringProp name="JSON_PATH">$.rechazado</stringProp>
+            <stringProp name="EXPECTED_VALUE">true</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">false</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+        </hashTree>
+
+      </hashTree>
+      <!-- fin TG3 -->
+
+      <!-- ==============================================================
+           TG4 — Múltiples brechas → activar detector de anomalías
+           Simula 4 brechas en corto tiempo para superar el umbral de 3
+      ============================================================== -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG4 — Patrón Anómalo: 4 brechas → alerta escalada" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <!-- 4 loops: supera el umbral de 3 alteraciones para activar anomalía -->
+          <stringProp name="LoopController.loops">4</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+        <!-- Corromper hash (cada iteración simula una nueva alteración) -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/test/integrity-breach/ — Brecha múltiple #N" enabled="true">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"modo": "hash_aleatorio"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/test/integrity-breach/${ANALISIS_ID_COMPLETADO}/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree/>
+
+        <!-- Verificar la alteración (esto registra la brecha en el contador de anomalías) -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="GET /api/reportes/.../verify/ — Detectar brecha #N" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/reportes/${ANALISIS_ID_COMPLETADO}/verify/</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert 409 — Cada brecha detectada" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">409</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">
+              FALLO ASR-11: Brecha múltiple no detectada en iteración N.
+            </stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor"
+                               testname="Log progreso de anomalía" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="script">
+def code = prev.getResponseCode()
+def loop = ctx.getVariables().get("__jm__TG4_loop__")
+log.info("TG4 Iteración " + loop + ": HTTP " + code + " — Brecha detectada correctamente")
+            </stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+
+        <!-- Pausa mínima entre brechas (simula alteraciones en ráfaga) -->
+        <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer"
+                       testname="Pausa 200ms entre brechas" enabled="true">
+          <stringProp name="ConstantTimer.delay">200</stringProp>
+        </ConstantTimer>
+        <hashTree/>
+
+      </hashTree>
+      <!-- fin TG4 -->
+
+      <!-- ==============================================================
+           TG5 — Verificar que el detector de anomalías fue activado
+      ============================================================== -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG5 — Verificar anomalía activa en detector" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+      </ThreadGroup>
+
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="GET /api/test/anomaly-status/ — Verificar anomalía activa" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/test/anomaly-status/${EMPRESA_ID}/</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="✅ Assert 200 — Estado de anomalía disponible" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">200</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+          <!-- Verificar que anomalia_activa = true (se superó el umbral de 3 en TG4) -->
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert anomalia_activa = true (umbral superado)" enabled="true">
+            <stringProp name="JSON_PATH">$.anomalia_activa</stringProp>
+            <stringProp name="EXPECTED_VALUE">true</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">false</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+
+          <!-- Verificar que alteraciones_activas >= 3 -->
+          <JSONPathAssertion guiclass="JSONPathAssertionGui" testclass="JSONPathAssertion"
+                             testname="✅ Assert alteraciones_activas &gt;= 3" enabled="true">
+            <stringProp name="JSON_PATH">$.alteraciones_activas</stringProp>
+            <stringProp name="EXPECTED_VALUE">[3-9]|[1-9][0-9]+</stringProp>
+            <boolProp name="JSONVALIDATION">true</boolProp>
+            <boolProp name="EXPECT_NULL">false</boolProp>
+            <boolProp name="INVERT">false</boolProp>
+            <boolProp name="ISREGEX">true</boolProp>
+          </JSONPathAssertion>
+          <hashTree/>
+
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor"
+                               testname="Log resultado final ASR-11" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="script">
+import groovy.json.JsonSlurper
+def json = new JsonSlurper().parseText(prev.getResponseDataAsString())
+log.info("=== RESULTADO FINAL ASR-11 ===")
+log.info("Empresa: " + json.empresa_id)
+log.info("Alteraciones activas: " + json.alteraciones_activas + "/" + json.umbral_anomalia)
+log.info("Anomalía activa: " + json.anomalia_activa)
+log.info("Ventana: " + json.ventana_segundos + "s")
+if (json.anomalia_activa) {
+    log.info("✅ ASR-11 CUMPLIDO: Detector de anomalías activado correctamente")
+} else {
+    log.warn("⚠️  Detector de anomalías NO activado. Verificar umbral y ventana de tiempo.")
+}
+            </stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <!-- fin TG5 -->
+
+      <!-- ==============================================================
+           LISTENERS
+      ============================================================== -->
+
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector"
+                       testname="📊 Summary Report — ASR-11 Integridad" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename">results/asr11_summary.csv</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector"
+                       testname="🔍 View Results Tree (DEBUG)" enabled="false">
+        <boolProp name="ResultCollector.error_logging">true</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>true</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>true</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>true</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename">results/asr11_errors.jtl</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

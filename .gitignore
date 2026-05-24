@@ -1,0 +1,99 @@
+# =============================================================================
+# Arquisoft Project - Git Ignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python / Django
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.log
+*.pot
+*.pyc
+*.pyo
+*.db
+*.sqlite3
+db.sqlite3
+media/
+staticfiles/
+static/
+local_settings.py
+venv/
+.venv/
+ENV/
+env/
+venv.bak/
+env.bak/
+
+# Environment files
+#.env
+#.env.*
+
+# Database dumps
+dump.rdb
+*.rdb
+*.sql
+*.psql
+
+# -----------------------------------------------------------------------------
+# Node.js / Frontend / React
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-error.log
+*.node
+.npm/
+.yarn/
+.pnp/
+.pnp.js
+build/
+dist/
+coverage/
+
+# Frontend directories
+frontend/build/
+frontend/dist/
+frontend/.next/
+frontend/.nuxt/
+frontend/coverage/
+
+# Frontend environment files
+frontend/.env
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+
+# -----------------------------------------------------------------------------
+# AWS / Cloud
+# -----------------------------------------------------------------------------
+.aws/
+*.pem
+*.key
+
+# -----------------------------------------------------------------------------
+# Terraform / Infrastructure
+# -----------------------------------------------------------------------------
+*.tfstate
+*.tfstate.*
+**/.terraform/
+**/.terraform.*
+
+# -----------------------------------------------------------------------------
+# AI Assistants / IDE
+# -----------------------------------------------------------------------------
+.vscode/
+.opencode/
+.claude/
+.cursor/
+windsurf/
+ai/
+
+# -----------------------------------------------------------------------------
+# System / OS
+# -----------------------------------------------------------------------------
+.DS_Store
+**/.DS_Store
+.bash_history
+.zsh_history
