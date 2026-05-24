@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+
+    <!-- ================================================================
+         PLAN DE PRUEBAS: ASR-10 SEGURIDAD — Autenticación Centralizada
+         ================================================================
+         ASR-10: Cuando se realiza un request a cualquier endpoint sin JWT
+         válido de Auth0 (sin token, expirado o firma inválida), el Middleware
+         de Seguridad rechaza la solicitud retornando HTTP 401 en el 100% de
+         los casos, sin procesar la solicitud internamente.
+
+         Casos de prueba (100 requests cada uno):
+           TG1 — Sin header Authorization      → espera 401
+           TG2 — Token con firma manipulada    → espera 401
+           TG3 — Token expirado                → espera 401
+
+         NOTA SOBRE RATE LIMITING:
+           El RateLimitMiddleware bloquea una IP después de 10 fallos de auth
+           en una ventana de 60 s, retornando 429. Esto sigue siendo un
+           "rechazo sin procesamiento de negocio", cumpliendo el ASR-10.
+           Las assertions aceptan 401 O 429 como respuestas válidas de bloqueo.
+           Si se requiere ver 401 puros, configurar:
+             RATE_LIMIT_FAILED_AUTH_MAX=200 en el .env del servidor Django.
+
+         Criterios de PASO:
+           ✅ 0 % de requests retornan 200 o 202
+           ✅ 100 % de requests retornan 401 o 429 (bloqueados)
+           ✅ CloudWatch registra evento ACCESO_BLOQUEADO por cada request
+           ✅ Ningún evento ANALISIS_REQUESTED aparece en CloudWatch durante la prueba
+
+         Instrucciones de ejecución:
+           1. Reemplazar REEMPLAZAR_CON_TOKEN_EXPIRADO con un JWT real expirado
+           2. Configurar HOST con el DNS del ALB (terraform output alb_dns_name)
+           3. Ejecutar: jmeter -n -t experimento_asr10_seguridad.jmx -l resultados_asr10.jtl
+           4. Generar reporte: jmeter -g resultados_asr10.jtl -o reporte_asr10/
+    ================================================================ -->
+
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan"
+              testname="ASR-10 Seguridad — Autenticación Centralizada AQSF" enabled="true">
+      <stringProp name="TestPlan.comments">
+        Verifica que el Middleware de Seguridad rechaza 100% de requests no autorizados.
+        Ejecutar con el servidor Django activo y los tokens de prueba preparados.
+      </stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <!-- Los 3 Thread Groups se ejecutan en secuencia (no en paralelo) -->
+      <boolProp name="TestPlan.serialize_threadgroups">true</boolProp>
+
+      <!-- Variables globales del plan -->
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments"
+                   guiclass="ArgumentsPanel" testclass="Arguments"
+                   testname="Variables Globales" enabled="true">
+        <collectionProp name="Arguments.arguments">
+
+          <!-- HOST: DNS del ALB — reemplazar con el valor de: terraform output alb_dns_name -->
+          <elementProp name="HOST" elementType="Argument">
+            <stringProp name="Argument.name">HOST</stringProp>
+            <stringProp name="Argument.value">localhost</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!-- PORT: 8000 para acceso directo al Django EC2, 80 a través del ALB -->
+          <elementProp name="PORT" elementType="Argument">
+            <stringProp name="Argument.name">PORT</stringProp>
+            <stringProp name="Argument.value">80</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!-- EMPRESA_ID: UUID de una empresa existente en la BD (para el body del request) -->
+          <elementProp name="EMPRESA_ID" elementType="Argument">
+            <stringProp name="Argument.name">EMPRESA_ID</stringProp>
+            <stringProp name="Argument.value">00000000-0000-0000-0000-000000000001</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!--
+            TOKEN_FIRMA_INVALIDA: JWT con firma manipulada.
+            Construcción: tomar cualquier JWT válido y modificar el último
+            carácter del segmento de firma (tercer segmento separado por '.').
+            Ejemplo: si el token termina en "...xYz", cambiar a "...xYZ"
+          -->
+          <elementProp name="TOKEN_FIRMA_INVALIDA" elementType="Argument">
+            <stringProp name="Argument.name">TOKEN_FIRMA_INVALIDA</stringProp>
+            <stringProp name="Argument.value">eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImZha2Uta2lkIn0.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwiZXhwIjo5OTk5OTk5OTk5LCJhdWQiOiJodHRwczovL21lYXN1cmVtZW50cy9hcGkiLCJpc3MiOiJodHRwczovL2Rldi1xY2J6aW9ndnY1aDQxNTF1LnVzLmF1dGgwLmNvbS8ifQ.FIRMA_COMPLETAMENTE_INVALIDA_QUE_NO_PASA_VERIFICACION_RSA256</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+          <!--
+            TOKEN_EXPIRADO: JWT real de Auth0 que ya venció.
+            Generarlo con la Management API de Auth0 o capturar uno real y esperar que expire.
+            El claim 'exp' debe ser anterior al momento de la prueba.
+          -->
+          <elementProp name="TOKEN_EXPIRADO" elementType="Argument">
+            <stringProp name="Argument.name">TOKEN_EXPIRADO</stringProp>
+            <stringProp name="Argument.value">REEMPLAZAR_CON_TOKEN_YA_EXPIRADO</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+
+    <hashTree>
+
+      <!-- ============================================================
+           HTTP Request Defaults — base de todos los requests
+      ============================================================ -->
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement"
+                         testname="HTTP Request Defaults" enabled="true">
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments"
+                     guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
+          <collectionProp name="Arguments.arguments"/>
+        </elementProp>
+        <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+        <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+        <stringProp name="HTTPSampler.protocol">http</stringProp>
+        <stringProp name="HTTPSampler.connect_timeout">5000</stringProp>
+        <stringProp name="HTTPSampler.response_timeout">10000</stringProp>
+      </ConfigTestElement>
+      <hashTree/>
+
+      <!-- ============================================================
+           HTTP Header Manager — Content-Type base
+      ============================================================ -->
+      <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager"
+                     testname="Content-Type JSON" enabled="true">
+        <collectionProp name="HeaderManager.headers">
+          <elementProp name="Content-Type" elementType="Header">
+            <stringProp name="Header.name">Content-Type</stringProp>
+            <stringProp name="Header.value">application/json</stringProp>
+          </elementProp>
+        </collectionProp>
+      </HeaderManager>
+      <hashTree/>
+
+      <!-- ============================================================
+           THREAD GROUP 1 — Sin header Authorization → espera 401
+           Caso: request llega al endpoint sin ningún token de auth.
+           El middleware detecta ausencia del header y retorna 401
+           sin ejecutar ninguna lógica de negocio.
+      ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG1 — Sin header Authorization (espera 401)" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <intProp name="LoopController.loops">100</intProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay">0</stringProp>
+        <stringProp name="ThreadGroup.comments">
+          100 requests sin header Authorization al endpoint POST /api/analisis/.
+          Todos deben ser bloqueados con 401 por Auth0SecurityMiddleware.
+        </stringProp>
+      </ThreadGroup>
+      <hashTree>
+
+        <!-- Request sin Authorization header -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/analisis/ — Sin token" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments"
+                       guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"empresa_id": "${EMPRESA_ID}", "tipo_analisis": "CONSUMO_CLOUD"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name"></stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain"></stringProp>
+          <stringProp name="HTTPSampler.port"></stringProp>
+          <stringProp name="HTTPSampler.protocol"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/analisis/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+
+          <!-- Assertion: debe retornar 401 o 429 (ambos = bloqueado) -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert 401 o 429 — Bloqueado" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">401</stringProp>
+              <stringProp name="52841">429</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">FALLO: Request sin token no fue bloqueado. Se esperaba 401 o 429.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">40</intProp><!-- OR mode -->
+          </ResponseAssertion>
+          <hashTree/>
+
+          <!-- Assertion: body NO debe contener analisis_id (no se procesó negocio) -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert SIN analisis_id en body" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="1">analisis_id</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">FALLO: El body contiene analisis_id — se ejecutó lógica de negocio sin autenticación.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">6</intProp><!-- NOT CONTAINS -->
+          </ResponseAssertion>
+          <hashTree/>
+
+        </hashTree>
+      </hashTree>
+
+      <!-- ============================================================
+           THREAD GROUP 2 — Token con firma manipulada → espera 401
+           Caso: el atacante modifica el segmento de firma del JWT.
+           El middleware detecta la firma inválida y retorna 401.
+      ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG2 — Token con firma manipulada (espera 401)" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <intProp name="LoopController.loops">100</intProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.delay">10</stringProp>
+        <stringProp name="ThreadGroup.comments">
+          100 requests con JWT de firma manipulada. El middleware debe detectar
+          la firma inválida (PyJWT lanza InvalidTokenError) y retornar 401.
+        </stringProp>
+      </ThreadGroup>
+      <hashTree>
+
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager"
+                       testname="Authorization — Firma Inválida" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Authorization" elementType="Header">
+              <stringProp name="Header.name">Authorization</stringProp>
+              <stringProp name="Header.value">Bearer ${TOKEN_FIRMA_INVALIDA}</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/analisis/ — Firma inválida" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments"
+                       guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"empresa_id": "${EMPRESA_ID}", "tipo_analisis": "CONSUMO_CLOUD"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name"></stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/analisis/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert 401 o 429 — Bloqueado" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">401</stringProp>
+              <stringProp name="52841">429</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">FALLO: Request con firma inválida no fue bloqueado. Se esperaba 401 o 429.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">40</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert SIN analisis_id en body" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="1">analisis_id</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">FALLO: El body contiene analisis_id — se ejecutó lógica de negocio.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">6</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+        </hashTree>
+      </hashTree>
+
+      <!-- ============================================================
+           THREAD GROUP 3 — Token expirado → espera 401 con mensaje
+           Caso: el token fue válido pero ya venció (claim 'exp' pasado).
+           El middleware detecta la expiración y retorna 401 con
+           detail: "Token expirado".
+      ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup"
+                   testname="TG3 — Token expirado (espera 401 con mensaje expiración)" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController"
+                     guiclass="LoopControlPanel" testclass="LoopController" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <intProp name="LoopController.loops">100</intProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.delay">10</stringProp>
+        <stringProp name="ThreadGroup.comments">
+          100 requests con JWT expirado. El middleware debe detectar la expiración
+          (PyJWT lanza ExpiredSignatureError) y retornar 401 con detail="Token expirado".
+          IMPORTANTE: Reemplazar TOKEN_EXPIRADO con un JWT real de Auth0 ya vencido.
+        </stringProp>
+      </ThreadGroup>
+      <hashTree>
+
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager"
+                       testname="Authorization — Token Expirado" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Authorization" elementType="Header">
+              <stringProp name="Header.name">Authorization</stringProp>
+              <stringProp name="Header.value">Bearer ${TOKEN_EXPIRADO}</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                          testname="POST /api/analisis/ — Token expirado" enabled="true">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments"
+                       guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"empresa_id": "${EMPRESA_ID}", "tipo_analisis": "CONSUMO_CLOUD"}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name"></stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/analisis/</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert 401 o 429 — Bloqueado" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">401</stringProp>
+              <stringProp name="52841">429</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">FALLO: Request con token expirado no fue bloqueado. Se esperaba 401 o 429.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">40</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+
+          <!-- Assertion específica: el body debe indicar expiración (solo aplica a los 401 puros) -->
+          <!-- Esta assertion se evalúa sobre las primeras respuestas antes del rate limit -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert mensaje de expiración o IP bloqueada" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="1">Token expirado</stringProp>
+              <stringProp name="2">No autorizado</stringProp>
+              <stringProp name="3">Demasiados intentos</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">FALLO: El body no contiene mensaje de rechazo esperado.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">40</intProp><!-- OR — basta con que uno esté presente -->
+          </ResponseAssertion>
+          <hashTree/>
+
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                             testname="Assert SIN analisis_id en body" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="1">analisis_id</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">FALLO: El body contiene analisis_id — se ejecutó lógica de negocio.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">6</intProp><!-- NOT CONTAINS -->
+          </ResponseAssertion>
+          <hashTree/>
+
+        </hashTree>
+      </hashTree>
+
+      <!-- ============================================================
+           LISTENERS — Captura de resultados
+      ============================================================ -->
+
+      <!-- Reporte resumen con error rate y throughput -->
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector"
+                       testname="Summary Report" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+          </value>
+        </objProp>
+        <stringProp name="filename">resultados_asr10_summary.jtl</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <!-- Ver árbol de resultados (solo usar en GUI para debugging) -->
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector"
+                       testname="View Results Tree" enabled="false">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>true</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+          </value>
+        </objProp>
+        <stringProp name="filename"></stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

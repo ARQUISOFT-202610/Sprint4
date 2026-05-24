@@ -1,6 +1,7 @@
 from core.shared.base import AggregateRoot
 from datetime import datetime
 
+
 class AnalisisConsumo(AggregateRoot):
     def __init__(self, empresa_id: str, tipo_analisis: str, id=None):
         super().__init__(id)
@@ -8,7 +9,8 @@ class AnalisisConsumo(AggregateRoot):
         self.tipo_analisis = tipo_analisis
         self.estado = "PENDIENTE"
         self.fecha_ejecucion = None
-        self.report_hash = None  # ASR-8: Preparación para integridad del reporte
+        self.report_hash = None   # ASR-11: Integridad del reporte (hash SHA-256)
+        self.solicitado_por = ""  # ASR-10: Trazabilidad del solicitante
 
     def iniciar_ejecucion(self):
         self.estado = "EN_PROGRESO"
