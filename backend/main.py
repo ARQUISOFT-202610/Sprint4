@@ -325,11 +325,17 @@ def _get_dynamodb_resource():
     return boto3.resource("dynamodb", **kwargs)
 
 
+_dynamo_table_ready: bool = False  # flag para lazy init
+
+
 def _ensure_empresa_table() -> None:
     """
     Crea la tabla 'Empresa' en DynamoDB si no existe.
     Operación idempotente — si ya existe, no hace nada.
     """
+    global _dynamo_table_ready
+    if _dynamo_table_ready:
+        return
     dynamodb = _get_dynamodb_resource()
     try:
         table = dynamodb.create_table(
@@ -340,36 +346,68 @@ def _ensure_empresa_table() -> None:
         )
         table.wait_until_exists()
         logger.info("Tabla 'Empresa' creada en DynamoDB")
+        _dynamo_table_ready = True
     except ClientError as exc:
         if exc.response["Error"]["Code"] in (
             "ResourceInUseException", "TableAlreadyExistsException"
         ):
             logger.info("Tabla 'Empresa' ya existe en DynamoDB")
+            _dynamo_table_ready = True
         else:
             logger.error("Error creando tabla 'Empresa': %s", exc)
     except (NoCredentialsError, NoRegionError) as exc:
         logger.warning("DynamoDB no disponible al inicio: %s", exc)
+    except Exception as exc:
+        # Captura EndpointConnectionError y otros errores de conectividad
+        logger.warning("No se pudo conectar a DynamoDB: %s", exc)
+        raise
+
+
+def _get_empresa_table():
+    """
+    Retorna la tabla DynamoDB 'Empresa', garantizando que existe primero.
+    Hace lazy init si el startup no pudo conectar a DynamoDB.
+    """
+    if not _dynamo_table_ready:
+        try:
+            _ensure_empresa_table()
+        except Exception as exc:
+            logger.error("DynamoDB sigue sin estar disponible: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Servicio DynamoDB no disponible temporalmente. Reintenta en unos segundos.",
+            )
+    return _get_dynamodb_resource().Table("Empresa")
 
 
 # ---------------------------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------------------------
 class EmpresaCreate(BaseModel):
+    model_config = {"extra": "allow"}  # ignora campos extra como 'sector'
+
     nombre:            str
     nit:               str
+    sector:            Optional[str] = None
     responsable_email: Optional[str] = None
 
 
 class EmpresaUpdate(BaseModel):
+    model_config = {"extra": "allow"}
+
     nombre:            Optional[str] = None
     nit:               Optional[str] = None
+    sector:            Optional[str] = None
     responsable_email: Optional[str] = None
 
 
 class EmpresaResponse(BaseModel):
+    model_config = {"extra": "allow"}  # permite devolver campos extra de DynamoDB
+
     id:                str
     nombre:            str
     nit:               str
+    sector:            Optional[str] = None
     responsable_email: Optional[str] = None
     creado_en:         str
 
@@ -381,7 +419,14 @@ class EmpresaResponse(BaseModel):
 async def lifespan(app: FastAPI):
     """Inicialización y cierre del servicio."""
     logger.info("=== Microservicio Empresas iniciando (puerto 8001) ===")
-    _ensure_empresa_table()
+    try:
+        _ensure_empresa_table()
+        logger.info("DynamoDB tabla 'Empresa' verificada OK")
+    except Exception as exc:
+        logger.warning(
+            "DynamoDB no disponible en startup: %s — se reintentará en el primer request",
+            exc,
+        )
     # Inicializar audit logger al arranque para detectar problemas de credenciales
     try:
         get_audit_logger()
@@ -442,12 +487,13 @@ def crear_empresa(body: EmpresaCreate, request: Request):
         "id":                empresa_id,
         "nombre":            body.nombre,
         "nit":               body.nit,
+        "sector":            body.sector or "",
         "responsable_email": body.responsable_email or "",
         "creado_en":         creado_en,
     }
 
     try:
-        table = _get_dynamodb_resource().Table("Empresa")
+        table = _get_empresa_table()
         table.put_item(Item=item)
     except (NoCredentialsError, NoRegionError, ClientError) as exc:
         logger.error("Error guardando empresa en DynamoDB: %s", exc)
@@ -478,7 +524,7 @@ def listar_empresas(request: Request):
     Requiere JWT válido de Auth0.
     """
     try:
-        table  = _get_dynamodb_resource().Table("Empresa")
+        table  = _get_empresa_table()
         result = table.scan()
         return result.get("Items", [])
     except (NoCredentialsError, NoRegionError, ClientError) as exc:
@@ -501,7 +547,7 @@ def obtener_empresa(empresa_id: str, request: Request):
     Requiere JWT válido de Auth0.
     """
     try:
-        table  = _get_dynamodb_resource().Table("Empresa")
+        table  = _get_empresa_table()
         result = table.get_item(Key={"id": empresa_id})
         item   = result.get("Item")
     except (NoCredentialsError, NoRegionError, ClientError) as exc:
@@ -531,7 +577,7 @@ def actualizar_empresa(empresa_id: str, body: EmpresaUpdate, request: Request):
     Requiere JWT válido de Auth0.
     """
     try:
-        table  = _get_dynamodb_resource().Table("Empresa")
+        table  = _get_empresa_table()
         result = table.get_item(Key={"id": empresa_id})
         item   = result.get("Item")
     except (NoCredentialsError, NoRegionError, ClientError) as exc:
@@ -591,6 +637,7 @@ def actualizar_empresa(empresa_id: str, body: EmpresaUpdate, request: Request):
     return updated
 
 
+
 @app.delete(
     "/fastapi/empresas/{empresa_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -600,10 +647,10 @@ def actualizar_empresa(empresa_id: str, body: EmpresaUpdate, request: Request):
 def eliminar_empresa(empresa_id: str, request: Request):
     """
     Elimina una empresa por su UUID.
-    Requiere JWT válido de Auth0.
+    Requiere JWT valido de Auth0.
     """
     try:
-        table  = _get_dynamodb_resource().Table("Empresa")
+        table  = _get_empresa_table()
         result = table.get_item(Key={"id": empresa_id})
         if not result.get("Item"):
             raise HTTPException(
@@ -629,13 +676,13 @@ def eliminar_empresa(empresa_id: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Helpers internos
+# Helpers
 # ---------------------------------------------------------------------------
 def _get_user_email(request: Request) -> str:
-    """Extrae el email del usuario autenticado inyectado por el middleware."""
     user = getattr(request.state, "user", None)
-    return getattr(user, "email", "unknown") if user else "unknown"
+    return user.email if user else "anonymous"
 
 
 def _get_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
