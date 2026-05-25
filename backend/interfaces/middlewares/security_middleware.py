@@ -12,6 +12,7 @@ Rutas excluidas: /health/, /admin/login/, /api/schema/
 """
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -27,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 # Rutas que no requieren autenticación
 _PUBLIC_PATHS = frozenset(["/health/", "/admin/", "/api/schema/", "/api/docs/"])
+
+# Bandera para deshabilitar autenticación en pruebas de latencia SIN seguridad.
+# Permite al experimento ASR-11 medir latencia base y compararla con seguridad activa.
+# NUNCA activar en producción real.
+# Uso: BYPASS_AUTH_FOR_TESTING=true en .env antes de correr el JMeter sin tokens.
+_BYPASS_AUTH = os.getenv("BYPASS_AUTH_FOR_TESTING", "false").lower() == "true"
 
 # Cache de JWKS para no pedir las claves públicas en cada request
 _JWKS_CACHE: dict = {"keys": None, "expires_at": 0}
@@ -61,6 +68,16 @@ class Auth0SecurityMiddleware:
     def __call__(self, request):
         # Rutas públicas: pasar sin validación
         if any(request.path.startswith(p) for p in _PUBLIC_PATHS):
+            return self.get_response(request)
+
+        # Bypass para experimento de latencia SIN seguridad (comparación ASR-11)
+        if _BYPASS_AUTH:
+            request.user = AuthenticatedUser(
+                email="bypass@test.com",
+                empresa_id=None,
+                roles=[],
+                sub="bypass",
+            )
             return self.get_response(request)
 
         ip = request.META.get("REMOTE_ADDR", "unknown")

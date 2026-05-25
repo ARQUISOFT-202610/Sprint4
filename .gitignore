@@ -97,3 +97,6 @@ ai/
 **/.DS_Store
 .bash_history
 .zsh_history
+
+#md
+**/*.md
