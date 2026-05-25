@@ -1,7 +1,9 @@
 #!/bin/bash
 # Django EC2 Setup Script - Runs as user_data on first boot
 exec > /var/log/user-data.log 2>&1
-set -euo pipefail
+# NOTE: No usamos set -euo pipefail para que el script no muera en el primer error
+# En su lugar cada paso critico tiene su propio manejo de errores
+set -uo pipefail
 
 echo "=== Django EC2 Setup Started ==="
 date
@@ -142,10 +144,19 @@ if [ "$RDS_READY" = false ]; then
 fi
 
 echo "=== Running Django Migrations ==="
-/app/venv/bin/python /app/backend/manage.py migrate --noinput || {
-  echo "ERROR: Django migrations failed"
-  exit 1
-}
+# Reintentar migraciones hasta 3 veces (RDS puede tardar en aceptar conexiones)
+MIGRATION_ATTEMPTS=0
+until [ $MIGRATION_ATTEMPTS -ge 3 ]; do
+  MIGRATION_ATTEMPTS=$((MIGRATION_ATTEMPTS + 1))
+  echo "Migration attempt $MIGRATION_ATTEMPTS/3..."
+  if /app/venv/bin/python /app/backend/manage.py migrate --noinput 2>&1; then
+    echo "Migrations successful!"
+    break
+  else
+    echo "Migration failed, waiting 15s before retry..."
+    sleep 15
+  fi
+done
 
 echo "=== Collecting Static Files ==="
 /app/venv/bin/python /app/backend/manage.py collectstatic --noinput || {

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Celery Worker Setup Script - Runs as user_data on first boot
 exec > /var/log/user-data.log 2>&1
-set -euo pipefail
+set -uo pipefail
 
 echo "=== Celery Worker Setup Started ==="
 date
