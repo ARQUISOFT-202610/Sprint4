@@ -25,12 +25,18 @@ INSTALLED_APPS = [
 # ---------------------------------------------------------------------------
 # Middleware — Orden crítico (ASR-10):
 #   1. Auth0SecurityMiddleware → valida JWT, bloquea no autorizados, log inmutable
-#   2. RateLimitMiddleware     → bloquea brute force y cross-tenant abuse
+#   2. Auth0SecurityMiddleware → valida JWT (devuelve 401 si es inválido)
 #   3. CommonMiddleware        → headers estándar
+#
+# ORDEN CRÍTICO: RateLimitMiddleware debe estar ANTES que Auth0SecurityMiddleware.
+# Django ejecuta middlewares de arriba a abajo. El rate limiter necesita envolver
+# al de seguridad para poder contar los intentos fallidos (401) y activar el 429.
+# Si estuviera después, Auth0SecurityMiddleware devuelve 401 sin que RateLimitMiddleware
+# llegue a ver la respuesta → el 429 nunca se activa.
 # ---------------------------------------------------------------------------
 MIDDLEWARE = [
-    "interfaces.middlewares.security_middleware.Auth0SecurityMiddleware",
     "interfaces.middlewares.rate_limit_middleware.RateLimitMiddleware",
+    "interfaces.middlewares.security_middleware.Auth0SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
