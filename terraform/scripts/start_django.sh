@@ -73,7 +73,7 @@ export ALLOWED_HOSTS="*"
 # ── 6. Migraciones ─────────────────────────────────────────
 echo "Corriendo migraciones..."
 cd "$APP_DIR"
-"$VENV/bin/python" manage.py migrate --noinput && echo "Migraciones OK" || echo "WARN: migraciones fallaron, continuando..."
+"$VENV/bin/python" manage.py migrate --run-syncdb --noinput && echo "Migraciones OK" || echo "WARN: migraciones fallaron, continuando..."
 
 # ── 7. Mata gunicorn anterior si está corriendo ────────────
 pkill -f "gunicorn config.wsgi" 2>/dev/null || true

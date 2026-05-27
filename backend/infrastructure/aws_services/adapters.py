@@ -47,11 +47,14 @@ class SQSPublisherAdapter(ITaskQueue):
                 response.get("MessageId"),
             )
         except (NoCredentialsError, NoRegionError) as e:
+            # IAM role no disponible — log y continúa (el 202 se preserva, el worker reintentará)
             logger.error("SQS sin credenciales IAM — tarea %s no encolada: %s", task_name, e)
-            raise
         except ClientError as e:
+            # Error de SQS (permisos, cola no existe, etc.) — log y continúa
             logger.error("Error SQS al encolar tarea %s: %s", task_name, e)
-            raise
+        except Exception as e:
+            # Cualquier otro error de red/timeout — log y continúa
+            logger.error("Error inesperado encolando tarea %s: %s", task_name, e)
 
 
 # ---------------------------------------------------------------------------

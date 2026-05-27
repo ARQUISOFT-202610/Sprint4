@@ -149,7 +149,7 @@ MIGRATION_ATTEMPTS=0
 until [ $MIGRATION_ATTEMPTS -ge 3 ]; do
   MIGRATION_ATTEMPTS=$((MIGRATION_ATTEMPTS + 1))
   echo "Migration attempt $MIGRATION_ATTEMPTS/3..."
-  if /app/venv/bin/python /app/backend/manage.py migrate --noinput 2>&1; then
+  if /app/venv/bin/python /app/backend/manage.py migrate --run-syncdb --noinput 2>&1; then
     echo "Migrations successful!"
     break
   else
