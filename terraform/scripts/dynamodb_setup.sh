@@ -16,15 +16,21 @@ echo "=== CloudWatch Logs Disabled ==="
 echo "DynamoDB Local instance does not send logs to CloudWatch"
 mkdir -p /var/log/dynamodb
 
+echo "=== Installing unzip and curl ==="
+apt-get install -y unzip curl
+
 echo "=== Creating DynamoDB Local Directory ==="
 mkdir -p /opt/dynamodb
 cd /opt/dynamodb
 
 echo "=== Downloading DynamoDB Local ==="
-# Download latest version of DynamoDB Local
-wget https://s3.us-west-2.amazonaws.com/dynamodb-local/dynamodb_local_latest.zip
-unzip -q dynamodb_local_latest.zip
-rm dynamodb_local_latest.zip
+# Usar cloudfront (más confiable que S3 directo en AWS Academy)
+curl -fL https://d1ni2b6xgvw0s0.cloudfront.net/v2.x/dynamodb_local_latest.tar.gz \
+  -o dynamodb_local_latest.tar.gz || \
+curl -fL https://s3.us-west-2.amazonaws.com/dynamodb-local/dynamodb_local_latest.tar.gz \
+  -o dynamodb_local_latest.tar.gz
+tar -xzf dynamodb_local_latest.tar.gz
+rm dynamodb_local_latest.tar.gz
 
 echo "=== Setting up DynamoDB Local Service ==="
 
